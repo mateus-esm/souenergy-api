@@ -156,15 +156,23 @@ def verificar_autenticado(page) -> bool:
 
 def tentar_logar(page) -> None:
     log.info("Tentando login...")
+    # IMPORTANTE: limpar obstaculos ANTES de abrir o modal.
+    # `limpar_obstaculos` clica em `.action-close`, que fecha o popup de login
+    # recem-aberto -- era a causa do login falhar em produção (verificado
+    # 2026-09-13: manual funcionava, servico falhava).
+    limpar_obstaculos(page)
     page.evaluate("document.querySelector('.loginIcon')?.click()")
-    esperar_e_limpar(page, 3)
     try:
-        page.fill('#email', USUARIO, force=True)
-        page.fill('#pass', SENHA, force=True)
+        page.wait_for_selector('#email', timeout=15000, state='visible')
     except Exception:
-        limpar_obstaculos(page)
-        page.fill('#email', USUARIO, force=True)
-        page.fill('#pass', SENHA, force=True)
+        # Se o modal nao abriu, tentar de novo sem limpar (nao fechar)
+        page.evaluate("document.querySelector('.loginIcon')?.click()")
+        try:
+            page.wait_for_selector('#email', timeout=10000, state='visible')
+        except Exception:
+            pass
+    page.fill('#email', USUARIO, force=True)
+    page.fill('#pass', SENHA, force=True)
     page.evaluate("document.querySelector('#send2')?.click()")
     try:
         page.wait_for_load_state('networkidle', timeout=30000)
