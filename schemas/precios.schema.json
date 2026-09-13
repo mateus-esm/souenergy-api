@@ -17,6 +17,7 @@
     "tipo_preco": { "const": "pix_kit" },
     "tabelas": {
       "type": "object",
+      "required": ["mono_solplanet_620", "tri_solplanet_620", "micro_hoymiles_620", "micro_hoymiles_710"],
       "additionalProperties": false,
       "propertyNames": {
         "enum": [

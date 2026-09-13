@@ -17,6 +17,8 @@ import hashlib
 import io
 import logging
 import os
+import re
+import shlex
 import sys
 import tarfile
 import time
@@ -43,6 +45,7 @@ PAQUETE = [
 REMOTE_BASE = os.getenv("VPS_REMOTE_BASE", "/opt/souenergy-api")
 REMOTE_RELEASES = f"{REMOTE_BASE}/releases"
 REMOTE_CURRENT = f"{REMOTE_BASE}/current"
+REMOTE_PREVIOUS = f"{REMOTE_BASE}/previous"
 REMOTE_MANIFEST = "MANIFEST.sha256"
 SERVICIO = os.getenv("VPS_SERVICIO", "souenergy")
 HEALTHCHECK = os.getenv("VPS_HEALTHCHECK", "http://localhost:8000/")
@@ -60,6 +63,10 @@ def _requerido(nombre: str) -> str:
 
 
 def _conectar():
+    try:
+        import paramiko
+    except ImportError as exc:
+        raise DeployError("Instale requirements-deploy.txt antes do deploy") from exc
     host = _requerido("VPS_HOST")
     user = _requerido("VPS_USER")
     clave = _requerido("VPS_SSH_KEY")
@@ -82,7 +89,7 @@ def _ejecutar(ssh, comando: str, timeout: int = 120) -> str:
     err = stderr.read().decode("utf-8", "replace")
     codigo = stdout.channel.recv_exit_status()
     if codigo != 0:
-        raise DeployError(f"Comando remoto falló ({codigo}): {comando}\n{err}")
+        raise DeployError(f"Comando remoto falhou (código {codigo}); saída omitida por segurança")
     return out.strip()
 
 
@@ -95,7 +102,7 @@ def _construir_paquete() -> tuple[bytes, dict]:
             ruta = BASE / nombre
             if ruta.is_dir():
                 for f in sorted(ruta.rglob("*")):
-                    if f.is_file():
+                    if f.is_file() and not f.is_symlink() and "__pycache__" not in f.parts and f.suffix not in (".pyc", ".key", ".pem") and not f.name.startswith(".env"):
                         _agregar(tar, f, manifest)
             elif ruta.is_file():
                 _agregar(tar, ruta, manifest)
@@ -127,38 +134,57 @@ def _subir(ssh, tar_bytes: bytes, release: str) -> None:
 
 
 def _verificar_checksums(ssh, release: str) -> None:
-    _ejecutar(ssh, f"cd {REMOTE_RELEASES}/{release} && "
+    _ejecutar(ssh, f"cd {shlex.quote(REMOTE_RELEASES + '/' + release)} && "
                    f"tar xzf paquete.tar.gz && sha256sum -c {REMOTE_MANIFEST}")
 
 
 def _release_actual(ssh) -> str | None:
     try:
-        return _ejecutar(ssh, f"readlink {REMOTE_CURRENT}")
+        return _ejecutar(ssh, f"readlink {shlex.quote(REMOTE_CURRENT)}")
     except DeployError:
         return None
 
 
 def _healthcheck(ssh) -> bool:
     try:
-        salida = _ejecutar(ssh, f"curl -sf {HEALTHCHECK} || echo FALLO")
-        return "FALLO" not in salida
-    except DeployError:
+        import json
+        salida = _ejecutar(ssh, f"curl --fail --silent --show-error --max-time 20 {shlex.quote(HEALTHCHECK)}")
+        return json.loads(salida).get("status") == "ok"
+    except (DeployError, ValueError):
         return False
 
 
+def _trocar_ponteiro(ssh, destino: str, ponteiro: str) -> None:
+    temporario = ponteiro + ".tmp"
+    _ejecutar(ssh, f"ln -sfn {shlex.quote(destino)} {shlex.quote(temporario)} && "
+                   f"mv -Tf {shlex.quote(temporario)} {shlex.quote(ponteiro)}")
+
+
+def _preparar_release(ssh, release: str) -> None:
+    """Instala dependências isoladas e migra sem abrir navegador."""
+    pasta = f"{REMOTE_RELEASES}/{release}"
+    python = shlex.quote(pasta + "/venv/bin/python")
+    _ejecutar(ssh, f"python3 -m venv {shlex.quote(pasta + '/venv')}")
+    _ejecutar(ssh, f"{python} -m pip install -r {shlex.quote(pasta + '/requirements.txt')}", timeout=600)
+    _ejecutar(ssh, f"PLAYWRIGHT_BROWSERS_PATH=/var/lib/souenergy/.cache/ms-playwright "
+                   f"{python} -m playwright install chromium", timeout=600)
+    codigo = "import db; c=db.conectar('/var/lib/souenergy/catalogo.sqlite3'); db.migrar(c); c.close()"
+    _ejecutar(ssh, f"cd {shlex.quote(pasta)} && {python} -c {shlex.quote(codigo)}")
+
+
 def _desplegar(ssh, release: str) -> None:
-    _ejecutar(ssh, f"ln -sfn {REMOTE_RELEASES}/{release} {REMOTE_CURRENT}")
-    _ejecutar(ssh, f"systemctl restart {SERVICIO}")
+    _trocar_ponteiro(ssh, f"{REMOTE_RELEASES}/{release}", REMOTE_CURRENT)
+    _ejecutar(ssh, f"sudo -n systemctl restart {shlex.quote(SERVICIO)}")
     time.sleep(3)
-    _ejecutar(ssh, f"systemctl status {SERVICIO} --no-pager -l")
+    _ejecutar(ssh, f"systemctl is-active {shlex.quote(SERVICIO)}")
     if not _healthcheck(ssh):
         raise DeployError(f"Healthcheck falló: {HEALTHCHECK}")
 
 
 def _rollback(ssh, previa: str | None) -> None:
     if previa:
-        _ejecutar(ssh, f"ln -sfn {previa} {REMOTE_CURRENT}")
-        _ejecutar(ssh, f"systemctl restart {SERVICIO}")
+        _trocar_ponteiro(ssh, previa, REMOTE_CURRENT)
+        _ejecutar(ssh, f"sudo -n systemctl restart {shlex.quote(SERVICIO)}")
         time.sleep(3)
         if _healthcheck(ssh):
             log.info(f"Rollback ok a {previa}")
@@ -173,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--release", default=time.strftime("%Y%m%d%H%M%S"))
     args = parser.parse_args(argv)
 
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", args.release):
+        log.error("Identificador de release inválido")
+        return 1
     try:
         ssh = _conectar()
     except DeployError as e:
@@ -181,18 +210,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         previa = _release_actual(ssh)
         if args.rollback:
-            _rollback(ssh, previa)
+            anterior = _ejecutar(ssh, f"readlink {shlex.quote(REMOTE_PREVIOUS)}")
+            _rollback(ssh, anterior)
             return 0
 
         tar_bytes, _manifest = _construir_paquete()
+        _ejecutar(ssh, f"mkdir -p {shlex.quote(REMOTE_RELEASES)}")
         _subir(ssh, tar_bytes, args.release)
         _verificar_checksums(ssh, args.release)
+        _preparar_release(ssh, args.release)
         try:
             _desplegar(ssh, args.release)
         except DeployError:
             log.error("Deploy falló — restaurando release anterior")
             _rollback(ssh, previa)
             return 1
+        if previa:
+            _trocar_ponteiro(ssh, previa, REMOTE_PREVIOUS)
         log.info(f"Deploy ok: release {args.release} -> {REMOTE_CURRENT}")
         return 0
     finally:

@@ -218,7 +218,7 @@ def extrair_tipo_inversor(texto: str | None) -> str | None:
 # ─── Quantidade de módulos ─────────────────────────────────────────────────────
 
 _QTY_RE = re.compile(r'(\d+)\s*[xX×]\s*\d+\s*W', re.IGNORECASE)
-_QTY_PALABRA_RE = re.compile(r'(\d+)\s*(?:m[oó]dulos?|paines?|paneles?|paineis?)', re.IGNORECASE)
+_QTY_PALABRA_RE = re.compile(r'(\d+)\s*(?:m[oó]dulos?|paines?|paneles?|pain[eé]is)', re.IGNORECASE)
 
 
 def extrair_quantidade_modulos(texto: str | None) -> int | None:

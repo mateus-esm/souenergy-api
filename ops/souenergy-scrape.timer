@@ -1,11 +1,11 @@
 [Unit]
-Description=Coleta completa SouEnergy — disparo diario 04:30 America/Sao_Paulo
+Description=Coleta completa SouEnergy — disparo semanal aos domingos 04:30 America/Sao_Paulo
 Documentation=docs/dev/projects/souenergy-api/SE-PRICES-002/codex/plano.md
 
 [Timer]
-# Timezone explícito (systemd >= 244). Verificar con: systemd-analyze calendar
-OnCalendar=*-*-* 04:30:00 America/Sao_Paulo
-# Recupera un disparo perdido, sin ejecutar todo el historial de días perdidos
+# Fuso explícito. Verificar com: systemd-analyze calendar
+OnCalendar=Sun *-*-* 04:30:00 America/Sao_Paulo
+# Recupera um disparo perdido, sem executar todo o histórico
 Persistent=true
 RandomizedDelaySec=300
 

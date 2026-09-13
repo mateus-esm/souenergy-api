@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import jsonschema
@@ -93,6 +94,9 @@ def proyectar_catalogo(conn, mapeo: dict | None = None) -> tuple[dict, dict]:
         if (f["disponibilidade"] != "disponible"
                 or f["preco_normalizado"] is None):
             continue  # permanece en DB con motivo; no entra al contrato
+        if f["motivo_nao_exportavel"]:
+            no_mapeados.append({"url": f["url"], "motivo": f["motivo_nao_exportavel"]})
+            continue
         if f["tipo_produto"] != "kit":
             no_mapeados.append({"url": f["url"], "motivo": "no_es_kit"})
             continue
@@ -145,7 +149,9 @@ def hash_comercial(datos: dict, mapeo_version: int | None = None) -> str:
         "schema_version": datos["schema_version"],
         "tipo_preco": datos["tipo_preco"],
         "mapeo_version": mapeo_version,
-        "tabelas": datos["tabelas"],
+        "tabelas": {k: [{campo: valor for campo, valor in fila.items()
+                         if campo != "capturado_em"} for fila in filas]
+                    for k, filas in datos["tabelas"].items()},
     }
     canon = json.dumps(comercial, sort_keys=True, ensure_ascii=False,
                        separators=(",", ":"))
@@ -157,10 +163,18 @@ def validar_contrato(datos: dict) -> list[str]:
     unicidad de produto_id/url). Devuelve lista de errores (vacía = ok)."""
     errores = []
     try:
-        jsonschema.validate(datos, SCHEMA)
+        jsonschema.validate(datos, SCHEMA, format_checker=jsonschema.FormatChecker())
     except jsonschema.ValidationError as e:
         return [f"schema: {e.message}"]
 
+    datas = [datos["coleta_aprovada_em"], datos["conteudo_alterado_em"]]
+    datas.extend(f["capturado_em"] for filas in datos["tabelas"].values() for f in filas)
+    for valor in datas:
+        try:
+            if datetime.fromisoformat(valor.replace("Z", "+00:00")).tzinfo is None:
+                raise ValueError()
+        except ValueError:
+            errores.append("Data inválida ou sem fuso horário")
     vistos_id, vistos_url = set(), set()
     for tabla, filas in datos["tabelas"].items():
         for f in filas:

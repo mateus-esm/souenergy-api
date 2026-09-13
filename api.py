@@ -20,11 +20,12 @@ import hmac
 import json
 import logging
 import os
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Security
+from fastapi import FastAPI, HTTPException, Security, Query
 from fastapi.security.api_key import APIKeyHeader
 
 import db
@@ -67,13 +68,21 @@ app = FastAPI(
 
 def verificar_chave(key: str | None = Security(api_key_header)):
     """Comparación en tiempo constante; header ausente/vacío -> 403."""
-    if not key or not hmac.compare_digest(key, API_KEY):
+    if not key or not hmac.compare_digest(key.encode(), API_KEY.encode()):
         raise HTTPException(status_code=403, detail="API key inválida")
     return key
 
 
 def _conn_ro():
-    return db.conectar(DB_PATH, modo="ro")
+    try:
+        conn = db.conectar(DB_PATH, modo="ro")
+        conn.execute("BEGIN")
+        conn.execute("SELECT id FROM scrapes LIMIT 1")
+        return conn
+    except sqlite3.Error:
+        if "conn" in locals():
+            conn.close()
+        raise HTTPException(status_code=503, detail="Banco ainda não inicializado")
 
 
 def _conn_rw():
@@ -94,14 +103,14 @@ def estado():
             "version": VERSION,
             "source": "database",
             "coleta_aprovada_em": scrape["finalizado_em"] if scrape else None,
-            "desactualizado": scrape is None,
+            "desactualizado": db.coleta_desatualizada(scrape),
         }
     finally:
         conn.close()
 
 
 @app.get("/precos")
-def precos(potencia: float, key: str = Security(verificar_chave)):
+def precos(potencia: float = Query(gt=0, allow_inf_nan=False), key: str = Security(verificar_chave)):
     """Compatibilidade legada: snapshot aprovado agrupado por marca."""
     conn = _conn_ro()
     try:
@@ -137,7 +146,7 @@ def precios_completos(key: str = Security(verificar_chave)):
 
 
 @app.post("/jobs", status_code=202)
-def crear_job(potencia: float, key: str = Security(verificar_chave)):
+def crear_job(potencia: float = Query(gt=0, allow_inf_nan=False), key: str = Security(verificar_chave)):
     """Compatibilidade: crea un resultado de consulta ya concluido en
     `jobs_consulta`. Ninguna fila volátil de scraping."""
     job_id = uuid.uuid4().hex

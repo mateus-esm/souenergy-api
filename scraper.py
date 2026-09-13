@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
 from catalogo import (canonicalizar_url, cargar_entradas, classificar_candidato,
-                      es_enlace_categoria, firma_cards, validar_entradas)
+                      es_enlace_categoria, firma_cards, validar_entradas, url_autorizada)
 from normalizacao import (calcular_potencia_total, extrair_fase,
                           extrair_marca_inversor, extrair_marca_modulo,
                           extrair_quantidade_modulos, extrair_tipo_inversor,
@@ -50,10 +50,10 @@ SELECTORES_SKU = [".sku", ".product-sku", '[itemprop="sku"]']
 SELECTORES_DISPONIBILIDAD = [".stock", ".availability", ".product-stock"]
 
 TEXTO_INDISPONIBLE = re.compile(
-    r'esgotado|sin stock|sem stock|no disponible|indisponible|agotado',
+    r'indisponível|indisponivel|fora de estoque|sem estoque|esgotado|sin stock|sem stock|no disponible|indisponible|agotado',
     re.IGNORECASE)
 TEXTO_DISPONIBLE = re.compile(
-    r'disponible|en stock|em stock|stock disponible', re.IGNORECASE)
+    r'disponível|disponivel|em estoque|disponible|en stock|em stock|stock disponible', re.IGNORECASE)
 
 MAX_INTENTOS_LOGIN = 2
 MAX_INTENTOS_DETALLE = 3
@@ -206,6 +206,21 @@ def verificar_sesion(page) -> None:
         raise LoginError("Sesión no confirmada tras expiración")
 
 
+def navegar_autenticado(page, url: str, timeout: int) -> None:
+    """Restringe navegação e rejeita resposta bloqueada ou sessão perdida."""
+    from catalogo import url_autorizada
+    if not url_autorizada(url):
+        raise BloqueadoError("URL fora do catálogo autorizado")
+    resposta = page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+    if resposta is not None and resposta.status >= 400:
+        raise BloqueadoError("Resposta HTTP de erro; coleta interrompida")
+    esperar_e_limpar(page, 1)
+    if not verificar_autenticado(page):
+        raise LoginError("Sessão perdida após navegação; nenhuma promoção permitida")
+    if es_bloqueo(page):
+        raise BloqueadoError("Bloqueio detectado após navegação")
+
+
 # ─── Lectura de listados ──────────────────────────────────────────────────────
 
 def es_listado_vacio(page) -> bool:
@@ -278,7 +293,7 @@ def colectar_enlaces_categoria(page, url_actual: str) -> list[str]:
         try:
             for el in page.query_selector_all(sel):
                 href = el.get_attribute('href') or ""
-                if href and es_enlace_categoria(href):
+                if href and url_autorizada(canonicalizar_url(href, url_actual)) and es_enlace_categoria(href):
                     enlaces.append(href)
         except Exception:
             continue
@@ -293,14 +308,20 @@ def cargar_url_y_colectar_cards(page, url: str) -> dict:
     """
     for tentativa in range(1, MAX_INTENTOS_LISTADO + 1):
         try:
-            page.goto(url, timeout=90000, wait_until='domcontentloaded')
+            navegar_autenticado(page, url, timeout=90000)
             esperar_e_limpar(page, 3)
             estabilizar_scroll(page)
             page.wait_for_selector('.product-item', timeout=12000)
             break
+        except (BloqueadoError, LoginError):
+            raise
         except Exception as e:
             if es_bloqueo(page):
                 raise BloqueadoError(f"Bloqueo (403/CAPTCHA) en {url}")
+            enlaces = colectar_enlaces_categoria(page, url)
+            if enlaces and page.query_selector(".categories a, .category-view .widget a"):
+                return {"productos": [], "subcategorias": enlaces,
+                        "siguiente": None, "estado": "ok"}
             if es_listado_vacio(page):
                 log.info(f"Listado vacío explícito: {url}")
                 return {"productos": [], "subcategorias": [],
@@ -532,7 +553,7 @@ def analizar_producto(page, prod: dict) -> dict:
     """
     for intento in range(1, MAX_INTENTOS_DETALLE + 1):
         try:
-            page.goto(prod["url"], timeout=60000, wait_until='domcontentloaded')
+            navegar_autenticado(page, prod["url"], timeout=60000)
             esperar_e_limpar(page, 2)
             if page.query_selector('.product-info-main') is None:
                 if page.query_selector('.product-item'):
@@ -545,7 +566,7 @@ def analizar_producto(page, prod: dict) -> dict:
             datos = extraer_datos_producto(page, prod)
             return {"status": "ok", "url": prod["url"], "datos": datos,
                     "tentativas": intento}
-        except BloqueadoError:
+        except (BloqueadoError, LoginError):
             raise
         except Exception as e:
             if intento >= MAX_INTENTOS_DETALLE:
@@ -560,13 +581,15 @@ def analizar_producto(page, prod: dict) -> dict:
 
 # ─── Recorrido del catálogo (BFS) ─────────────────────────────────────────────
 
-def recorrer_catalogo(page, entrada: dict, limites: Limites) -> dict:
+def recorrer_catalogo(page, entrada: dict, limites: Limites,
+                      entradas_adicionais=None, on_observacao=None) -> dict:
     """BFS sobre categorías/páginas + visita de todos los detalles únicos."""
-    cola_categorias = [canonicalizar_url(entrada["url"])]
+    cola_categorias = list(dict.fromkeys(canonicalizar_url(e["url"])
+                           for e in [entrada, *(entradas_adicionais or [])]))
     cola_productos: list[str] = []
     # La entrada es una categoría: cuenta en planeadas/visitadas y evita
     # re-enfileirar la raíz si aparece como enlace de subcategoría.
-    categorias_vistas = {canonicalizar_url(entrada["url"])}
+    categorias_vistas = set(cola_categorias)
     paginas_vistas = set()
     productos_vistos: dict[str, dict] = {}
     observaciones = []
@@ -597,19 +620,21 @@ def recorrer_catalogo(page, entrada: dict, limites: Limites) -> dict:
             # Subcategorías (hermanos y niveles) — enfileirar siempre
             for sub in res["subcategorias"]:
                 sub_c = canonicalizar_url(sub, url)
-                if sub_c not in categorias_vistas:
+                if url_autorizada(sub_c) and sub_c not in categorias_vistas:
                     categorias_vistas.add(sub_c)
                     cola_categorias.append(sub_c)
             # Enlaces de categoría del menú/navegación
             for sub in colectar_enlaces_categoria(page, url):
                 sub_c = canonicalizar_url(sub, url)
-                if sub_c not in categorias_vistas and sub_c != url:
+                if url_autorizada(sub_c) and sub_c not in categorias_vistas and sub_c != url:
                     categorias_vistas.add(sub_c)
                     cola_categorias.append(sub_c)
 
             # Productos (dedup global por URL canónica; conserva categorías)
             for prod in res["productos"]:
                 p_c = canonicalizar_url(prod["url"], url)
+                if not url_autorizada(p_c):
+                    continue
                 if p_c in productos_vistos:
                     metricas["duplicados"] += 1
                 else:
@@ -626,7 +651,7 @@ def recorrer_catalogo(page, entrada: dict, limites: Limites) -> dict:
             else:
                 firmas[base] = firma
                 siguiente = res.get("siguiente")
-                if siguiente and siguiente not in paginas_vistas:
+                if siguiente and url_autorizada(siguiente) and siguiente not in paginas_vistas:
                     cola_categorias.append(siguiente)
         else:
             # Procesar detalles de productos
@@ -642,7 +667,7 @@ def recorrer_catalogo(page, entrada: dict, limites: Limites) -> dict:
                     cola_categorias.append(url_prod)
                 for sub in obs.get("subcategorias", []):
                     sub_c = canonicalizar_url(sub, url_prod)
-                    if sub_c not in categorias_vistas:
+                    if url_autorizada(sub_c) and sub_c not in categorias_vistas:
                         categorias_vistas.add(sub_c)
                         cola_categorias.append(sub_c)
                 for p in obs.get("productos", []):
@@ -657,6 +682,8 @@ def recorrer_catalogo(page, entrada: dict, limites: Limites) -> dict:
                     productos_vistos[p_c]["categorias"].add(url_prod)
                 continue
             observaciones.append(obs)
+            if on_observacao is not None:
+                on_observacao(obs)
             if obs["status"] == "ok":
                 metricas["detalles_validos"] += 1
             elif obs["status"] == "indisponivel":
@@ -682,13 +709,15 @@ def recorrer_catalogo(page, entrada: dict, limites: Limites) -> dict:
 
 def scrapear_tudo(entradas: list[dict] | None = None,
                   limites: Limites | None = None,
-                  contexto_preco: str = "cliente") -> dict:
+                  contexto_preco: str = "cliente", on_observacao=None) -> dict:
     """Colecta completa del catálogo. Devuelve inventario, observaciones y
     métricas. No persiste ni publica (responsabilidade de coleta.py)."""
     entradas = entradas if entradas is not None else cargar_entradas()
     validar_entradas(entradas)
     limites = limites or Limites()
     iniciado = _ahora()
+    if not USUARIO or not SENHA:
+        raise LoginError("USUARIO/SENHA ausentes; configure o ambiente antes da coleta")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -696,25 +725,12 @@ def scrapear_tudo(entradas: list[dict] | None = None,
         page = context.new_page()
         try:
             autenticar(page)
-            observaciones, inventario = [], []
-            metricas = {
-                "categorias_planeadas": 0, "categorias_visitadas": 0,
-                "paginas_visitadas": 0, "productos_descubiertos": 0,
-                "detalles_validos": 0, "indisponibles": 0, "fallos": 0,
-                "duplicados": 0, "fuera_mapeo": 0, "fila_esgotada": False,
-            }
-            fila_esgotada = True
-            for entrada in entradas:
-                log.info(f"Recorriendo entrada: {entrada['nome']} "
-                         f"({entrada['url']})")
-                res = recorrer_catalogo(page, entrada, limites)
-                observaciones.extend(res["observaciones"])
-                inventario.extend(res["inventario"])
-                fila_esgotada = fila_esgotada and res["metricas"]["fila_esgotada"]
-                for k in metricas:
-                    if k in res["metricas"]:
-                        metricas[k] += res["metricas"][k]
-            metricas["fila_esgotada"] = fila_esgotada
+            res = recorrer_catalogo(page, entradas[0], limites,
+                                    entradas_adicionais=entradas[1:],
+                                    on_observacao=on_observacao)
+            observaciones = res["observaciones"]
+            inventario = res["inventario"]
+            metricas = res["metricas"]
             return {
                 "versao_coletor": VERSION,
                 "iniciado_em": iniciado,

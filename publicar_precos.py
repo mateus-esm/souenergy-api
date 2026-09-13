@@ -42,7 +42,7 @@ def _git(repo: Path, *args: str) -> str:
                           capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise PublicationError(
-            f"git {' '.join(args)} falló: {proc.stderr.strip()[:300]}")
+            "Operação Git falhou; consulte o remoto sem expor credenciais")
     return proc.stdout.strip()
 
 
@@ -85,6 +85,7 @@ def _validar_archivo(ruta: Path) -> None:
 def _copiar_atomico(origen: Path, destino: Path) -> None:
     destino.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(destino.parent), suffix=".tmp")
+    os.close(fd)
     try:
         shutil.copyfile(origen, tmp)
         os.replace(tmp, destino)
@@ -105,7 +106,7 @@ def _verificar_deploy(url: str, hash_esperado: str) -> bool:
             if resp.status != 200:
                 return False
             datos = json.loads(resp.read().decode("utf-8"))
-        return datos.get("dataset_id") == hash_esperado
+        return datos.get("dataset_id") == hash_esperado and not validar_contrato(datos)
     except Exception:
         return False
 
@@ -125,11 +126,22 @@ def publicar(conn, ruta_json: str | os.PathLike, hash_conteudo: str,
     if not repo.exists():
         raise PublicationError(
             "REPO_PROPUESTAS no existe — configurar checkout del repo de propuestas")
+    anterior = conn.execute("SELECT * FROM publicacoes WHERE hash_conteudo = ?",
+                            (hash_conteudo,)).fetchone()
+    if anterior and anterior["status"] == "revertido":
+        raise PublicationError("Hash revertido bloqueado")
+    if anterior and anterior["commit_sha"] and url_publica:
+        if not _verificar_deploy(url_publica, hash_conteudo):
+            raise PublicationError("Deploy ainda não confirmado; repetir publicação depois")
+        db.actualizar_publicacion(conn, publicacion_id=anterior["id"], status="implantado")
+        return None
     if db.hash_ya_publicado(conn, hash_conteudo):
         log.info(f"Hash {hash_conteudo[:16]}… ya publicado — omitido")
         return None
 
     _validar_archivo(ruta_json)
+    if _hash_archivo(ruta_json) != hash_conteudo:
+        raise PublicationError("Hash informado difere do artefato")
 
     tmp = Path(tempfile.mkdtemp(prefix="pub-precios-"))
     try:
@@ -142,9 +154,9 @@ def publicar(conn, ruta_json: str | os.PathLike, hash_conteudo: str,
         _git(tmp, "config", "user.name", "souenergy-bot")
         _git(tmp, "config", "user.email", "souenergy-bot@souenergy.com.br")
         destino = tmp / ARCHIVO_DATOS
-        _copiar_atomico(ruta_json, destino)
+        sem_mudanca = destino.exists() and _hash_archivo(destino) == hash_conteudo
 
-        if _hash_archivo(destino) == hash_conteudo and _sin_cambios(tmp):
+        if sem_mudanca:
             # Sin cambio comercial: no generar commit diario
             head = _git(tmp, "rev-parse", "HEAD")
             publicacion_id = db.registrar_publicacion(
@@ -152,9 +164,14 @@ def publicar(conn, ruta_json: str | os.PathLike, hash_conteudo: str,
                 hash_conteudo=hash_conteudo)
             db.actualizar_publicacion(conn, publicacion_id=publicacion_id,
                                       status="enviado", commit_sha=head)
+            if url_publica and not _verificar_deploy(url_publica, hash_conteudo):
+                raise PublicationError("Deploy ainda não confirmado")
+            if url_publica:
+                db.actualizar_publicacion(conn, publicacion_id=publicacion_id, status="implantado")
             log.info("Sin cambio comercial — sin commit nuevo")
             return head
 
+        _copiar_atomico(ruta_json, destino)
         _git(tmp, "add", "--", ARCHIVO_DATOS)
         _git(tmp, "commit", "-m",
              f"data(solo-prices): actualizar precios.json ({hash_conteudo[:12]})")
@@ -163,10 +180,6 @@ def publicar(conn, ruta_json: str | os.PathLike, hash_conteudo: str,
         except PublicationError:
             # Branch avanzó: actualizar base y reaplicar solo el artefacto
             _git(tmp, "pull", "--rebase", "origin", branch)
-            _copiar_atomico(ruta_json, destino)
-            _git(tmp, "add", "--", ARCHIVO_DATOS)
-            _git(tmp, "commit", "-m",
-                 f"data(solo-prices): actualizar precios.json ({hash_conteudo[:12]})")
             _git(tmp, "push", "origin", branch)
 
         commit_sha = _git(tmp, "rev-parse", "HEAD")

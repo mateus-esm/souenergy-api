@@ -167,10 +167,10 @@ def _alertar_cambios(conn, scrape_id: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Coleta completa SouEnergy")
-    parser.add_argument("--db", help="Ruta del SQLite (default: SOUENERGY_DB)")
-    parser.add_argument("--lockfile", help="Ruta del lock (default: SOUENERGY_LOCK)")
+    parser.add_argument("--db", help="Caminho do SQLite (padrão: SOUENERGY_DB)")
+    parser.add_argument("--lockfile", help="Caminho do lock (padrão: SOUENERGY_LOCK)")
     parser.add_argument("--no-promote", action="store_true",
-                        help="Solo scrape + observaciones, sin promoção")
+                        help="Coleta de homologação sem promoção, exportação ou publicação")
     parser.add_argument("--limite-paginas", type=int, default=None)
     parser.add_argument("--limite-tiempo-min", type=int, default=None)
     parser.add_argument("--entradas", default=None,
@@ -178,12 +178,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--contexto-preco", default="cliente")
     args = parser.parse_args(argv)
 
-    fd = adquirir_lock(_lockfile_path(args))
+    try:
+        fd = adquirir_lock(_lockfile_path(args))
+    except OSError:
+        log.error("Não foi possível abrir o lock; confira diretório e permissões")
+        return EXIT_ERRO
     if fd is None:
         log.error("Outra coleta já está em execução (lock ocupado)")
         return EXIT_LOCK
     try:
         return _ejecutar(args)
+    except Exception as exc:
+        log.error("Falha operacional na coleta (%s)", type(exc).__name__)
+        return EXIT_ERRO
     finally:
         os.close(fd)
 
@@ -204,9 +211,16 @@ def _ejecutar(args) -> int:
         limites = Limites(max_paginas=args.limite_paginas,
                           max_tiempo_min=args.limite_tiempo_min)
         log.info(f"Coleta {scrape_id} iniciada — {len(entradas)} entradas")
+        def persistir(obs):
+            db.guardar_observacion(conn, scrape_id=scrape_id, url=obs["url"],
+                                   status=obs["status"], dados=obs.get("datos"),
+                                   erro_codigo=obs.get("erro_codigo"),
+                                   tentativas=obs.get("tentativas", 1))
+
         try:
             resultado = scrapear_tudo(entradas=entradas, limites=limites,
-                                      contexto_preco=args.contexto_preco)
+                                      contexto_preco=args.contexto_preco,
+                                      on_observacao=persistir)
         except LoginError as e:
             db.marcar_scrape(conn, scrape_id=scrape_id,
                              status="login_falhou", erro_codigo="login_falhou")
@@ -224,7 +238,7 @@ def _ejecutar(args) -> int:
         except Exception as e:
             db.marcar_scrape(conn, scrape_id=scrape_id, status="erro",
                              erro_codigo="excepcion")
-            log.exception("Erro durante la coleta")
+            log.error("Erro durante a coleta (%s)", type(e).__name__)
             return EXIT_ERRO
 
         # Persistir observaciones incrementalmente
@@ -258,7 +272,7 @@ def _ejecutar(args) -> int:
                          descobertos=metricas["productos_descubiertos"],
                          processados=metricas["detalles_validos"],
                          falhas=metricas["fallos"],
-                         cobertura_json=cobertura)
+                         cobertura_json=cobertura, autenticado=resultado["autenticado"])
 
         ok, motivo = validar_cobertura(conn, scrape_id, metricas,
                                        resultado["inventario"])
@@ -269,6 +283,11 @@ def _ejecutar(args) -> int:
             enviar_alerta("Coleta rejeitada SouEnergy", motivo,
                           nivel="warning", evento="cobertura_incompleta")
             return EXIT_REJEITADO
+
+        if args.no_promote:
+            db.marcar_scrape(conn, scrape_id=scrape_id, status="parcial")
+            log.info("Homologação concluída sem promoção, exportação ou publicação")
+            return EXIT_OK
 
         alteracoes = 0
         if not args.no_promote:
@@ -285,9 +304,21 @@ def _ejecutar(args) -> int:
             log.info(f"Mapeo: {reporte['elegidos']} elegidos, "
                      f"{reporte['no_mapeados']} no mapeados, "
                      f"{reporte['conflictos']} conflictos")
+            if os.getenv("PUBLICAR_AUTOMATICAMENTE", "false").lower() == "true":
+                if reporte["conflictos"] or any(n == 0 for n in reporte["por_tabla"].values()):
+                    raise ValueError("Publicação bloqueada: conflito ou tabela vazia")
+                for cambio in db.obtener_cambios_scrape(conn, scrape_id):
+                    anterior = cambio["preco_anterior"]
+                    if anterior and abs(cambio["preco"] - anterior) / anterior * 100 > float(os.getenv("VARIACION_MAXIMA_PCT", "30")):
+                        raise ValueError("Publicação bloqueada: variação anormal")
+                from publicar_precos import publicar_si_cambia
+                publicar_si_cambia(conn, ruta, hash_json,
+                                   url_publica=os.getenv("PRECIOS_URL_PUBLICA"))
+
         except Exception as e:
-            log.warning(f"Exportación candidata falló (no bloquea la coleta "
-                        f"aprobada): {e}")
+            log.error("Exportação ou publicação falhou (%s); banco aprovado preservado",
+                      type(e).__name__)
+            return EXIT_ERRO
 
         log.info(f"Coleta {scrape_id} completada — "
                  f"{metricas['productos_descubiertos']} produtos, "

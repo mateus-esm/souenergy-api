@@ -145,6 +145,18 @@ def relatorio_cobertura(*, entradas, categorias_planeadas, categorias_visitadas,
 
 def validar_entradas(entradas: list[dict]) -> None:
     """Valida que las entradas tengan nome/url/marca no vacíos."""
+    if not entradas:
+        raise ValueError("Nenhuma entrada de catálogo configurada")
     for e in entradas:
+        if not url_autorizada(e.get("url", "")):
+            raise ValueError("Entrada fora do domínio ou rota autorizados")
         if not e.get("nome") or not e.get("url") or not e.get("marca"):
             raise ValueError(f"Entrada de catálogo incompleta: {e!r}")
+
+def url_autorizada(url: str) -> bool:
+    """Somente catálogo da origem; exclui conta, carrinho e ações de sessão."""
+    partes = urlsplit(url)
+    return (partes.scheme == "https"
+            and partes.hostname in ("souenergy.com.br", "www.souenergy.com.br")
+            and not partes.username and not partes.password
+            and not re.search(r"/(customer|checkout|cart|wishlist|logout|account)(/|$)", partes.path, re.I))

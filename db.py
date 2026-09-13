@@ -111,7 +111,7 @@ def marcar_scrape(conn: sqlite3.Connection, *, scrape_id: str, status: str,
     asignaciones = ["status = ?", "finalizado_em = ?"]
     valores = [status, _ahora()]
     for k, v in campos.items():
-        if k in ("descobertos", "processados", "falhas", "alteracoes"):
+        if k in ("descobertos", "processados", "falhas", "alteracoes", "autenticado"):
             asignaciones.append(f"{k} = ?")
             valores.append(int(v))
         elif k == "cobertura_json":
@@ -304,6 +304,14 @@ def obtener_catalogo_aprobado(conn: sqlite3.Connection,
         " ORDER BY potencia_kwp, url", (scrape_id,)).fetchall()
 
 
+def coleta_desatualizada(scrape) -> bool:
+    """Uma semana mais 24 horas de tolerância para execução e recuperação."""
+    if scrape is None:
+        return True
+    data = datetime.fromisoformat(scrape["finalizado_em"])
+    return (datetime.now(timezone.utc) - data).total_seconds() > 192 * 3600
+
+
 def obtener_precios_por_potencia(conn: sqlite3.Connection,
                                  potencia: float) -> dict:
     """Compatibilidade legada de GET /precos: produtos com potencia >= alvo,
@@ -314,10 +322,18 @@ def obtener_precios_por_potencia(conn: sqlite3.Connection,
                 "desactualizado": True, "solplanet": [], "hoymiles": []}
     filas = conn.execute(
         "SELECT * FROM productos WHERE ultimo_scrape_id = ? AND ativo = 1"
-        " AND potencia_kwp >= ? ORDER BY potencia_kwp, url",
-        (scrape["id"], potencia)).fetchall()
+        " AND potencia_kwp > 0 ORDER BY potencia_kwp, url",
+        (scrape["id"],)).fetchall()
     solplanet, hoymiles = [], []
-    for f in filas:
+    selecionadas = []
+    for marca in ("SOLPLANET", "HOYMILES"):
+        grupo = [f for f in filas if (f["marca"] or "").upper() == marca]
+        if not grupo:
+            continue
+        acima = [f["potencia_kwp"] for f in grupo if f["potencia_kwp"] >= potencia]
+        alvo = min(acima) if acima else max(f["potencia_kwp"] for f in grupo)
+        selecionadas.extend(f for f in grupo if abs(f["potencia_kwp"] - alvo) <= 0.15)
+    for f in selecionadas:
         item = {
             "nome": f["nome"],
             "potencia": f["potencia_kwp"],
@@ -339,7 +355,7 @@ def obtener_precios_por_potencia(conn: sqlite3.Connection,
         "hoymiles": hoymiles,
         "source": "database",
         "coleta_aprovada_em": scrape["finalizado_em"],
-        "desactualizado": False,
+        "desactualizado": coleta_desatualizada(scrape),
     }
 
 
@@ -370,7 +386,7 @@ def registrar_publicacion(conn: sqlite3.Connection, *, scrape_id: str,
                           hash_conteudo: str) -> int:
     conn.execute(
         "INSERT INTO publicacoes (scrape_id, hash_conteudo, status, criado_em)"
-        " VALUES (?, ?, 'pendente', ?)",
+        " VALUES (?, ?, 'pendente', ?) ON CONFLICT(hash_conteudo) DO NOTHING",
         (scrape_id, hash_conteudo, _ahora()))
     conn.commit()
     return conn.execute(

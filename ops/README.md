@@ -1,105 +1,164 @@
-# Operación — SouEnergy API (coleta periódica)
+# Operação — SouEnergy API
 
-Documento de operación del colector completo, SQLite y publicación de
-`precios.json`. Plano: `docs/dev/projects/souenergy-api/SE-PRICES-002/codex/plano.md`.
+## Agenda semanal e gatilho manual
 
-## Arquitectura
+Por decisão de Mateus em 13/09/2026, a coleta roda **semanalmente, aos domingos
+às 04:30 em America/Sao_Paulo**. A janela evita o horário comercial. O timer usa
+`OnCalendar=Sun *-*-* 04:30:00 America/Sao_Paulo`, `Persistent=true` (recupera um
+acionamento perdido) e atraso aleatório de até cinco minutos. Não instalar um
+crontab adicional. O backup permanece **diário**, às 04:45; a API de backup do
+SQLite permite execução durante a coleta com WAL ativo.
 
+O **gatilho manual** é `python3 -m coleta`, executado na raiz da release, com o
+venv ativo e as variáveis de ambiente configuradas. Ele usa o mesmo lock da
+execução agendada. Não exige a API em execução. Para usar o ambiente de produção
+sem carregar segredos no terminal, o equivalente operacional é:
+
+```sh
+sudo systemctl start souenergy-scrape.service
+journalctl -u souenergy-scrape.service -n 100 --no-pager
 ```
-systemd timer (04:30 America/Sao_Paulo)
-  └─ souenergy-scrape.service (oneshot, User=souenergy)
-       └─ coleta.py  →  scraper.scrapear_tudo()  →  observaciones SQLite
-            └─ validación de cobertura → promoção atómica (scrapes ok)
-                 └─ exportar_precios.py → precios.json candidato (validado)
-                      └─ publicar_precos.py → propostas-soloenergia (opcional)
-systemd timer (04:45) → souenergy-backup.service → ops/backup.py (rotación 30)
-API (uvicorn) → lee SQLite en modo lectura (última coleta aprovada)
+
+Isso funciona mesmo com o timer desabilitado. O comando aguarda o serviço oneshot.
+Para execução direta em ambiente de homologação, provisionar `USUARIO`, `SENHA`,
+`SOUENERGY_DB`, `SOUENERGY_LOCK`, `EXPORT_DIR` e `PLAYWRIGHT_BROWSERS_PATH` no
+ambiente e executar:
+
+```sh
+cd /opt/souenergy-api/current
+. venv/bin/activate
+python3 -m coleta --help
+python3 -m coleta --no-promote
+python3 -m coleta
 ```
 
-## Instalación (producción)
+`--help` não abre navegador. `--no-promote` faz coleta real, grava observações e
+encerra como `parcial`, sem promover, exportar ou publicar. O comando completo
+promove apenas cobertura aprovada, exporta e publica somente quando
+`PUBLICAR_AUTOMATICAMENTE=true`. Para promover sem push, manter essa variável
+como `false`. Nenhuma coleta real foi executada durante a revisão PM.
 
-1. **Directorios y permisos** (usuario dedicado, sin superusuario):
-   ```sh
-   useradd -r -m -d /var/lib/souenergy souenergy
-   mkdir -p /opt/souenergy-api/releases /var/lib/souenergy/backups \
-            /var/lib/souenergy/.cache/ms-playwright /etc/souenergy
-   chown -R souenergy:souenergy /var/lib/souenergy /opt/souenergy-api
-   chmod 700 /etc/souenergy
-   ```
-2. **Segredos** en `/etc/souenergy/souenergy.env` (modo 0600, fuera del
-   checkout). Solo nombres/placeholders en `.env.example`:
-   `USUARIO`, `SENHA`, `API_KEY`, `SOUENERGY_DB`, `DB_BUSY_TIMEOUT_MS`,
-   `CATALOGO_ENTRADAS`, `EXPORT_DIR`, `REPO_PROPUESTAS`,
-   `REPO_PROPUESTAS_BRANCH`, `PUBLICAR_AUTOMATICAMENTE`, `ALERTA_*`,
-   `VPS_*`, `LIMITE_*`.
-3. **Release inmutable** (deploy_update.py): venv aislado, `pip install -r
-   requirements.txt`, Chromium con bibliotecas de sistema compatibles:
-   ```sh
-   python -m venv /opt/souenergy-api/venv
-   /opt/souenergy-api/venv/bin/pip install -r requirements.txt
-   /opt/souenergy-api/venv/bin/playwright install --with-deps chromium
-   ```
-4. **Timer** (solo timer, nunca crontab y timer a la vez):
-   ```sh
-   cp ops/souenergy-scrape.{service,timer} /etc/systemd/system/
-   cp ops/souenergy-backup.{service,timer} /etc/systemd/system/
-   systemctl daemon-reload
-   systemctl enable --now souenergy-scrape.timer souenergy-backup.timer
-   systemctl list-timers souenergy-scrape.timer
-   systemd-analyze calendar '*-*-* 04:30:00 America/Sao_Paulo'
-   ```
-   Habilitar el timer SOLO después de coleta manual de homologación aprobada.
+Saídas: **0** sucesso; **1** erro operacional, exportação ou publicação;
+**2** login falhou; **3** cobertura rejeitada; **5** lock ocupado. Após interrupção,
+a próxima execução marca o ciclo anterior como `interrompido` e inicia outro;
+as observações já gravadas permanecem disponíveis para diagnóstico.
 
-## Operación diaria
+## Preparação do VPS
 
-- **Ver coleta**: `journalctl -u souenergy-scrape.service -n 100 --no-pager`
-- **Ver próxima ejecución**: `systemctl list-timers souenergy-scrape.timer`
-- **Coleta manual** (sin push): `python coleta.py --no-promote`
-- **Coleta manual completa**: `python coleta.py`
-- **Códigos de salida**: 0 ok · 1 erro · 2 login_falhou · 3 rejeitado
-  (cobertura incompleta / queda > 20% / zero produtos) · 4 interrompido
-  (recuperación) · 5 lock ocupado.
-- **Estado de la DB**:
-  ```sql
-  SELECT id, status, iniciado_em, finalizado_em, descobertos, alteracoes
-    FROM scrapes ORDER BY iniciado_em DESC LIMIT 10;
-  SELECT motivo, COUNT(*) FROM historico_precios GROUP BY motivo;
-  ```
-- **Backup**: `ls -lt /var/lib/souenergy/backups/` · restaurar:
-  ```sh
-  systemctl stop souenergy   # procesos desconectados
-  cp /var/lib/souenergy/backups/catalogo-XXXX.sqlite3 \
-     /var/lib/souenergy/catalogo.sqlite3
-  systemctl start souenergy
-  ```
-  Probar `PRAGMA integrity_check` tras restaurar.
+Executar o provisionamento inicial como administrador:
 
-## Recuperación y rollback
+```sh
+useradd -r -m -d /var/lib/souenergy souenergy
+install -d -o souenergy -g souenergy /opt/souenergy-api/releases \
+  /var/lib/souenergy/backups /var/lib/souenergy/export \
+  /var/lib/souenergy/.cache/ms-playwright
+install -d -m 700 /etc/souenergy
+```
 
-- **Coleta falló**: se conserva el snapshot anterior; la API sigue sirviendo
-  datos con edad explícita (`desactualizado`). No re-promover días distintos.
-- **Publicación falló**: la DB aprobada se conserva; reenviar el mismo
-  artefacto (idempotente por hash en `publicacoes`).
-- **Datos incorrectos**: pausar timer/publicador, bloquear el hash rejeitado,
-  restaurar release anterior en Netlify por commit normal (no solo rollback
-  visual) y en la API volver al puntero de release segura. Nunca volver a una
-  versión con credenciales expuestas o autenticación abierta.
-- **Deploy**: `python deploy_update.py` (release inmutable + checksum +
-  healthcheck) · `python deploy_update.py --rollback`.
+Criar `/etc/souenergy/souenergy.env` fora do checkout, proprietário root e modo
+0600, a partir dos nomes de `.env.example`. O systemd lê esse arquivo antes de
+executar como `souenergy`. Configurar DB e lock em `/var/lib/souenergy`,
+`EXPORT_DIR=/var/lib/souenergy/export` e o caminho de browsers acima. Segredos
+reais nunca entram no Git, em argumentos de shell ou em logs. Rotacionar os
+segredos historicamente expostos; remover valores do HEAD não saneia o histórico.
 
-## Monitor
+Provisionar Python 3.11+, venv, Git, curl e bibliotecas de sistema do Chromium.
+O usuário SSH deve ser `souenergy`, com chave e `known_hosts` previamente
+validados e autorização sudo restrita ao restart do serviço `souenergy`.
+Instalar as dependências de sistema do Playwright como administrador durante o
+provisionamento; a instalação do browser ocorre como usuário de serviço.
 
-Alertas (canal en `ALERTA_*`): login falho, 403/CAPTCHA/429 persistente, zero
-produtos, cobertura incompleta, queda de contagem, mapeo inválido, variación
-anormal, disco cheio, backup falho, publicación/deploy falho. La ausencia de
-coleta aprovada por 36 h requiere un monitor independiente (OnFailure no
-detecta un timer que dejó de ejecutar).
+## Instalação e atualização
 
-## Seguridad
+1. Instalar localmente `requirements.txt` e `requirements-deploy.txt`. Configurar
+   somente por ambiente `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`
+   e, se necessário, `VPS_PORT`. Os exemplos de unidades assumem os caminhos
+   padrão e serviço `souenergy`; customizações devem ser aplicadas em conjunto.
+2. Na primeira instalação, copiar `ops/souenergy-api.service` para
+   `/etc/systemd/system/souenergy.service`. Copiar também as unidades
+   `souenergy-scrape.*` e `souenergy-backup.*` para `/etc/systemd/system/`.
+   Executar `systemctl daemon-reload`, sem habilitar ainda o timer de coleta.
+3. Antes de atualizar, parar o timer e aguardar a coleta ativa terminar. Fazer
+   backup consistente com `ops/backup.py`; não copiar apenas o SQLite com WAL
+   ativo. Executar `python3 deploy_update.py`. O script envia o pacote completo
+   com checksums, cria venv por release, instala dependências/Chromium, aplica
+   migrações aditivas e troca `current` atomicamente. O DB fica persistente fora
+   das releases. O healthcheck de `/` verifica processo e acesso ao banco;
+   não comprova preços homologados nem autenticação dos endpoints protegidos.
+4. Instalar novamente as unidades alteradas e executar `systemctl daemon-reload`.
+   Verificar 403 em `/precos?potencia=7` sem chave e com chave inválida; com chave
+   válida, esperar 503 antes da primeira coleta e 200 após homologação.
+5. Fazer coleta manual de homologação, reconciliar as entradas do catálogo,
+   verificar produtos/composição das quatro tabelas e aprovar a integração do
+   JSON com o adaptador do solo-prices. As entradas padrão são SOLPLANET e
+   HOYMILES, ampliadas pela navegação; isso não comprova cobertura total do site.
+6. Só então habilitar os timers:
 
-- Credenciales solo por env/`EnvironmentFile` (modo 0600). Nada real en Git.
-- SSH por clave con `known_hosts` validado, sin `AutoAddPolicy`, sin
-  contraseña embebida.
-- La API no arranca sin `API_KEY`; comparación en tiempo constante.
-- `precios.json` es contenido estático público: confirmar con el responsable
-  comercial que los precios de la cuenta pueden integrar el mismo contenido.
+```sh
+systemctl enable --now souenergy.service souenergy-backup.timer
+systemctl enable --now souenergy-scrape.timer
+systemd-analyze calendar 'Sun *-*-* 04:30:00 America/Sao_Paulo'
+systemctl list-timers souenergy-scrape.timer
+journalctl -u souenergy-scrape.service -n 100 --no-pager
+```
+
+Observar uma execução realmente agendada após a instalação. Push de código não
+significa deploy realizado; a revisão local não acessou o VPS nem o Netlify.
+
+## Publicação do solo-prices
+
+Configurar checkout dedicado em `REPO_PROPUESTAS`, branch em
+`REPO_PROPUESTAS_BRANCH`, credencial Git restrita e
+`PRECIOS_URL_PUBLICA` apontando para o JSON publicado. Implantar primeiro o
+adaptador compatível com schema v1 no repositório consumidor e confirmar as
+regras comerciais. `PUBLICAR_AUTOMATICAMENTE=true` conecta coleta e publicação.
+Tabelas vazias, conflitos ou variação de preço acima de `VARIACION_MAXIMA_PCT`
+bloqueiam a publicação. A DB aprovada é preservada se exportação/push falharem.
+
+O publicador não duplica commits por datas de captura, usa checkout temporário
+e registra separadamente envio Git e confirmação HTTP/schema/dataset. Netlify
+pode ainda estar construindo após o push; repetir a publicação do mesmo candidato
+posteriormente, sem nova coleta:
+
+```sh
+python3 - <<'PY'
+import json, os
+from pathlib import Path
+import db
+from publicar_precos import publicar
+c = db.conectar(os.environ['SOUENERGY_DB'])
+p = Path(os.environ['EXPORT_DIR']) / 'precios.json'
+try:
+    publicar(c, p, json.loads(p.read_text())['dataset_id'],
+             url_publica=os.environ['PRECIOS_URL_PUBLICA'])
+finally:
+    c.close()
+PY
+```
+
+Executar sob o mesmo usuário/ambiente, sem concorrência com a coleta. Uma nova
+coleta sobrescreve o candidato local; preservar o artefato em caso de revisão.
+Preços publicados em arquivo estático são públicos: a liberação comercial deve
+estar resolvida antes da ativação da publicação automática.
+
+## Monitoramento, backup e rollback
+
+A API marca dados como desatualizados após **192 horas** (7 dias + 24 horas de
+tolerância), em vez das 36 horas previstas para coleta diária. Configurar monitor
+externo independente consultando `/` e alertando quando `desactualizado=true` ou
+quando o serviço estiver inacessível. `OnFailure` sozinho não detecta timer parado.
+Configurar o destino `ALERTA_*` e verificar entrega durante a implantação.
+
+Backups: `python3 ops/backup.py --db /var/lib/souenergy/catalogo.sqlite3
+--dest /var/lib/souenergy/backups --keep 30` (comando em uma linha).
+Para restaurar, parar timer, coleta e API, guardar DB/WAL/SHM atuais fora do caminho
+ativo e restaurar backup com proprietário `souenergy`. Executar
+`PRAGMA integrity_check` na cópia restaurada antes de reiniciar. Nunca misturar
+WAL antigo com arquivo de backup restaurado.
+
+`python3 deploy_update.py --rollback` restaura o ponteiro `previous`, preservado
+após deploy bem-sucedido; não restaura dados nem unidades systemd. No primeiro
+deploy ainda não existe release anterior. Migrações incompatíveis exigem plano
+próprio. Para JSON incorreto, pausar publicação, marcar o hash como `revertido` em
+`publicacoes` e reverter o commit de dados no consumidor. Não reativar até validar
+a correção e o artefato servido.

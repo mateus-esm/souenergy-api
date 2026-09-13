@@ -6,7 +6,7 @@ Plano SE-PRICES-002 §7:
 - Alertas previstas: login falho, 403/CAPTCHA/429 persistente, zero produtos,
   cobertura incompleta, queda de contagem, mapeo inválido, variación anormal,
   disco cheio, backup falho, publicación/deploy falho, ausencia de coleta
-  aprovada por 36 h.
+  aprovada por 192 h.
 - Resumen de cambios: produto, precio anterior/nuevo y totales, sin segredos.
 """
 from __future__ import annotations
@@ -77,7 +77,8 @@ def enviar_alerta(titulo: str, mensaje: str, nivel: str = "info",
         except Exception as e:  # noqa: BLE001 — reintento limitado
             ultimo_error = e
             time.sleep(ESPERA_BASE * tentativa)
-    log.error(f"Alerta no entregada ({evento or titulo}): {ultimo_error}")
+    log.error("Alerta não entregue (%s): %s", evento or titulo,
+              type(ultimo_error).__name__)
 
 
 def enviar_resumen_cambios(cambios: list[dict], totais: dict) -> None:
