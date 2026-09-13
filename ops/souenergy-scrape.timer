@@ -1,0 +1,13 @@
+[Unit]
+Description=Coleta completa SouEnergy — disparo semanal aos domingos 04:30 America/Sao_Paulo
+Documentation=docs/dev/projects/souenergy-api/SE-PRICES-002/codex/plano.md
+
+[Timer]
+# Fuso explícito. Verificar com: systemd-analyze calendar
+OnCalendar=Sun *-*-* 04:30:00 America/Sao_Paulo
+# Recupera um disparo perdido, sem executar todo o histórico
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

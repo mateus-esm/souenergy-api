@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "entradas": [
+    {
+      "nome": "SOLPLANET",
+      "url": "https://souenergy.com.br/inversores-e-microinversores/solplanet.html",
+      "marca": "SOLPLANET"
+    },
+    {
+      "nome": "HOYMILES",
+      "url": "https://souenergy.com.br/inversores-e-microinversores/hoymiles.html",
+      "marca": "HOYMILES"
+    }
+  ]
+}

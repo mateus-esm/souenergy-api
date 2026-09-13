@@ -1,4 +1,10 @@
-fastapi
-uvicorn[standard]
-playwright
-python-dotenv
+# Runtime da API e do coletor
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+playwright==1.49.1
+python-dotenv==1.0.1
+jsonschema==4.23.0
+
+# Testes
+pytest==8.3.4
+httpx==0.28.1

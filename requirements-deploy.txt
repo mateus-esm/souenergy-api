@@ -1,0 +1,2 @@
+# Dependencias de deploy (separadas do runtime — ver plano §8.1.5)
+paramiko==3.5.0

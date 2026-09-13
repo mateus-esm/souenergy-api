@@ -1,0 +1,16 @@
+[Unit]
+Description=API SouEnergy sobre SQLite
+After=network-online.target
+
+[Service]
+Type=simple
+User=souenergy
+Group=souenergy
+WorkingDirectory=/opt/souenergy-api/current
+EnvironmentFile=/etc/souenergy/souenergy.env
+ExecStart=/opt/souenergy-api/current/venv/bin/python -m uvicorn api:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

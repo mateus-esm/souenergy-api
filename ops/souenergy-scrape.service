@@ -1,0 +1,22 @@
+[Unit]
+Description=Coleta completa SouEnergy (scraper periodico)
+Documentation=docs/dev/projects/souenergy-api/SE-PRICES-002/codex/plano.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=souenergy
+Group=souenergy
+WorkingDirectory=/opt/souenergy-api/current
+EnvironmentFile=/etc/souenergy/souenergy.env
+# Límite inicial de 60 min; ultrapasarlo FALLA, no aprueba parcialmente
+TimeoutStartSec=3600
+KillMode=control-group
+# Playwright necesita cache y directorios escribibles bajo aislamiento
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/souenergy/.cache/ms-playwright
+Environment=SOUENERGY_LOCK=/var/lib/souenergy/coleta.lock
+ExecStart=/opt/souenergy-api/current/venv/bin/python -m coleta
+
+[Install]
+WantedBy=multi-user.target
