@@ -131,6 +131,57 @@ def test_producto_sin_kwp():
     assert obs["datos"]["potencia_kwp"] is None  # no es fallo de cobertura
 
 
+def test_potencia_usa_h1_y_no_el_slug_de_la_url():
+    """El <title> deriva del slug y puede no coincidir con el producto.
+
+    Caso real: URL .../solplanet-5-67kwp-4-1.html sirviendo el kit de
+    6,20kWp; el H1 es la fuente correcta.
+    """
+    paginas = {
+        f"{BASE}/raiz.html": pagina_listado(
+            f"{BASE}/raiz.html",
+            cards=[card("Kit", f"{BASE}/solplanet-5-67kwp-4-1.html", True)]),
+        f"{BASE}/solplanet-5-67kwp-4-1.html": pagina_producto(
+            f"{BASE}/solplanet-5-67kwp-4-1.html",
+            titulo="GERADOR DE ENERGIA SOLPLANET 5,67kWp",
+            h1="GERADOR DE ENERGIA SOLPLANET 6,20kWp",
+            ficha="INVERSOR:\n1 x INVERSOR SOLPLANET 4KW 220V AFCI "
+                  "(ASW4000-S-G2)\nPAINEL FOTOVOLTAICO:\n"
+                  "26 x PAINEL MAXEON 415W (SPR-MAX3-415-R)\n"
+                  "ESTRUTURA:\nMESA SOLO"),
+    }
+    res = _recorrer(paginas)
+    datos = res["observaciones"][0]["datos"]
+    assert datos["potencia_kwp"] == 6.20
+    assert datos["quantidade_modulos"] == 26
+    assert datos["potencia_calculada"] == 10.79
+    # Composicion (26 x 415 W) diverge de la potencia declarada -> motivo
+    assert datos["motivo_nao_exportavel"] == "divergencia_potencia"
+
+
+def test_quantidade_nao_vem_del_kit_de_fixacion():
+    """'KIT DE FIXAÇÃO P/ 4 PAINÉIS' en la ficha no es la cantidad de módulos."""
+    paginas = {
+        f"{BASE}/raiz.html": pagina_listado(
+            f"{BASE}/raiz.html",
+            cards=[card("Kit", f"{BASE}/kit.html", True)]),
+        f"{BASE}/kit.html": pagina_producto(
+            f"{BASE}/kit.html",
+            titulo="GERADOR DE ENERGIA SOLPLANET 7,44kWp",
+            h1="GERADOR DE ENERGIA SOLPLANET 7,44kWp",
+            ficha="INVERSOR:\n1 x INVERSOR SOLPLANET 5KW 220V AFCI\n"
+                  "PAINEL FOTOVOLTAICO:\n"
+                  "12 x PAINEL MAXEON 620W\n"
+                  "KIT DE FIXAÇÃO P/ 4 PAINÉIS:\n1 x PRISIONEIRO\n"
+                  "ESTRUTURA:\nTELHA CERAMICA"),
+    }
+    res = _recorrer(paginas)
+    datos = res["observaciones"][0]["datos"]
+    assert datos["quantidade_modulos"] == 12
+    assert datos["potencia_kwp"] == 7.44
+    assert datos["motivo_nao_exportavel"] is None
+
+
 def test_equipamento_avulso():
     paginas = {
         f"{BASE}/raiz.html": pagina_listado(
