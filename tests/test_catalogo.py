@@ -79,3 +79,14 @@ def test_relatorio_cobertura_incompleta():
         indisponibles=0, fallos=1, duplicados=0, fuera_mapeo=0,
         fila_esgotada=False, autenticado=True)
     assert r["completa"] is False
+
+def test_menu_institucional_nao_e_categoria():
+    for rota in [
+        "/catalog/category/view/s/quem-somos/id/549/",
+        "/calculadora", "/formas-de-pagamento", "/politica-de-privacidade",
+        "/politica-de-vendas", "/sobre", "/sobre.html",
+    ]:
+        assert not catalogo.es_enlace_categoria("https://souenergy.com.br" + rota)
+    assert catalogo.es_enlace_categoria(
+        "https://souenergy.com.br/catalog/category/view/s/inversores/id/123/")
+    assert catalogo.es_enlace_categoria("https://souenergy.com.br/categorias/nova/")
