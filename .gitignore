@@ -1,9 +1,35 @@
+# Segredos e configuração local — nunca versionar
 .env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-venv/
 .venv/
+venv/
+
+# Base de dados e backups (nunca versionar)
+*.sqlite3
+*.sqlite3-*
+*.db
+backups/
+/var/lib/souenergy/
+
+# Artefatos de exportação local
+solo-prices/
+export/
+*.json.tmp
+
+# Deploy
 deploy.py
 deploy2.py
 souenergy.service
+*.pem
+*.key
+
+# Testes e tooling
+.pytest_cache/
+.coverage
+htmlcov/

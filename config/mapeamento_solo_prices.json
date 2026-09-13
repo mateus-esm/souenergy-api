@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "tabelas": {
+    "mono_solplanet_620": {
+      "marca": "SOLPLANET",
+      "tipo_inversor": "string",
+      "fase": "mono",
+      "modulo_potencia_w": 620
+    },
+    "tri_solplanet_620": {
+      "marca": "SOLPLANET",
+      "tipo_inversor": "string",
+      "fase": "tri",
+      "modulo_potencia_w": 620
+    },
+    "micro_hoymiles_620": {
+      "marca": "HOYMILES",
+      "tipo_inversor": "micro",
+      "modulo_potencia_w": 620
+    },
+    "micro_hoymiles_710": {
+      "marca": "HOYMILES",
+      "tipo_inversor": "micro",
+      "modulo_potencia_w": 710
+    }
+  },
+  "reglas": {
+    "elegir_variante": "menor_pix",
+    "desempate": "url",
+    "bloquear_sin_equivalencia": true,
+    "variacion_maxima_pct": 30,
+    "queda_maxima_pct": 20
+  }
+}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup diario del SQLite de SouEnergy (rotación 30)
+
+[Service]
+Type=oneshot
+User=souenergy
+Group=souenergy
+WorkingDirectory=/opt/souenergy-api/current
+ExecStart=/opt/souenergy-api/venv/bin/python ops/backup.py --db /var/lib/souenergy/catalogo.sqlite3 --dest /var/lib/souenergy/backups --keep 30
+
+[Install]
+WantedBy=multi-user.target

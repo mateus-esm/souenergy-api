@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "precios.json v1 — contrato solo-prices",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "dataset_id", "fonte", "moeda",
+    "coleta_aprovada_em", "conteudo_alterado_em", "tipo_preco", "tabelas"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "dataset_id": { "type": "string", "minLength": 1 },
+    "fonte": { "const": "SouEnergy" },
+    "moeda": { "const": "BRL" },
+    "coleta_aprovada_em": { "type": "string", "format": "date-time" },
+    "conteudo_alterado_em": { "type": "string", "format": "date-time" },
+    "tipo_preco": { "const": "pix_kit" },
+    "tabelas": {
+      "type": "object",
+      "additionalProperties": false,
+      "propertyNames": {
+        "enum": [
+          "mono_solplanet_620", "tri_solplanet_620",
+          "micro_hoymiles_620", "micro_hoymiles_710"
+        ]
+      },
+      "properties": {
+        "mono_solplanet_620": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
+        "tri_solplanet_620": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
+        "micro_hoymiles_620": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
+        "micro_hoymiles_710": { "type": "array", "items": { "$ref": "#/definitions/fila" } }
+      }
+    }
+  },
+  "definitions": {
+    "fila": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "produto_id", "url", "nome", "marca", "marca_modulo", "fase",
+        "tipo_inversor", "potencia_kwp", "modulo_potencia_w",
+        "quantidade_modulos", "inversor", "modulo", "estrutura",
+        "preco_pix_centavos", "preco_pix", "capturado_em"
+      ],
+      "properties": {
+        "produto_id": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "nome": { "type": "string", "minLength": 1 },
+        "marca": { "type": "string", "minLength": 1 },
+        "marca_modulo": { "type": ["string", "null"] },
+        "fase": { "enum": ["mono", "tri", "bi", null] },
+        "tipo_inversor": { "enum": ["string", "micro", "outro"] },
+        "potencia_kwp": { "type": "number", "exclusiveMinimum": 0 },
+        "modulo_potencia_w": { "type": "integer", "exclusiveMinimum": 0 },
+        "quantidade_modulos": { "type": "integer", "exclusiveMinimum": 0 },
+        "inversor": { "type": "string", "minLength": 1 },
+        "modulo": { "type": "string", "minLength": 1 },
+        "estrutura": { "type": "string", "minLength": 1 },
+        "preco_pix_centavos": { "type": "integer", "exclusiveMinimum": 0 },
+        "preco_pix": { "type": "number", "exclusiveMinimum": 0 },
+        "capturado_em": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
