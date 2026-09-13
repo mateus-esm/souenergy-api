@@ -92,6 +92,9 @@ class ElementoFalso:
     def inner_text(self):
         return self._texto
 
+    def is_visible(self):
+        return True
+
     def get_attribute(self, nombre):
         return self._atributos.get(nombre)
 
@@ -124,7 +127,7 @@ class PaginaFalsa:
         self.url_actual = url
         self.visitas.append(url)
 
-    def wait_for_selector(self, sel, timeout=None):
+    def wait_for_selector(self, sel, timeout=None, state=None):
         d = self._def()
         # Solo `timeout=True` simula un timeout real. Una página sin cards de
         # producto (índice de subcategorías) es un listado válido con 0 cards.
@@ -133,9 +136,11 @@ class PaginaFalsa:
 
     def query_selector_all(self, sel):
         d = self._def()
-        if sel == '.product-item':
+        if sel == 'main .products .product-item':
             return [_Card(c["nome"], c["href"], c.get("precio", False))
                     for c in d.get("cards", [])]
+        if sel == 'main .message.info.empty' and d.get("vacio"):
+            return [ElementoFalso(texto=d.get("body", ""))]
         if sel in ('.nav a', '.navigation a', '.categories a', '.widget a',
                    '.breadcrumbs a', '.menu a'):
             return [ElementoFalso(atributos={"href": h})
@@ -148,7 +153,7 @@ class PaginaFalsa:
             if d.get("es_producto"):
                 return ElementoFalso(texto=d.get("ficha", ""))
             return None
-        if sel == '.product-item':
+        if sel == 'main .products .product-item':
             return ElementoFalso() if d.get("cards") else None
         if sel in ('.pix-price-container .price', '.pix-price .price',
                    '[data-price-type="pix"] .price'):

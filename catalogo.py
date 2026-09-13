@@ -91,6 +91,15 @@ def es_enlace_categoria(href: str) -> bool:
     ruta = urlsplit(href).path.lower().rstrip('/')
     if not ruta:
         return False
+    # O menu também contém páginas institucionais, inclusive rotas Magento
+    # /catalog/category/view/s/quem-somos/id/...; não são catálogo de produtos.
+    institucionais = {
+        "quem-somos", "calculadora", "formas-de-pagamento",
+        "politica-de-privacidade", "politica-de-vendas", "sobre",
+    }
+    if any(segmento.removesuffix(".html") in institucionais
+           for segmento in ruta.split("/")):
+        return False
     if ruta.endswith('.html'):
         # Un .html bajo un segmento de categoría conocido puede ser subcategoría
         for seg in _SEGMENTOS_CATEGORIA:

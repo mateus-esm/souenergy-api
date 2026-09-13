@@ -46,6 +46,8 @@ SELECTORES_PIX = [
     ".pix-price .price",
     '[data-price-type="pix"] .price',
 ]
+# Restringe os cards ao catálogo: o minicarrinho também usa .product-item.
+SELECTOR_CARDS = "main .products .product-item"
 SELECTORES_SKU = [".sku", ".product-sku", '[itemprop="sku"]']
 SELECTORES_DISPONIBILIDAD = [".stock", ".availability", ".product-stock"]
 
@@ -133,7 +135,7 @@ def estabilizar_scroll(page, max_iteraciones: int = 8) -> None:
         if not RAPIDO:
             time.sleep(0.5)
         try:
-            n = len(page.query_selector_all('.product-item'))
+            n = len(page.query_selector_all(SELECTOR_CARDS))
         except Exception:
             n = anterior
         if n == anterior:
@@ -146,8 +148,14 @@ def estabilizar_scroll(page, max_iteraciones: int = 8) -> None:
 
 # ─── Autenticación estricta ───────────────────────────────────────────────────
 
-def verificar_autenticado(page) -> bool:
+def verificar_autenticado(page, *, aguardar: bool = False) -> bool:
+    """Confirma a sessão; aguarda o marcador dinâmico quando solicitado."""
     try:
+        if aguardar and not verificar_autenticado(page):
+            page.wait_for_selector(
+                ".login-container.logged:visible, "
+                ".loginIcon span:has-text('Olá'):visible",
+                state="attached", timeout=15000)
         return (page.is_visible(".login-container.logged")
                 or page.is_visible(".loginIcon span:has-text('Olá')"))
     except Exception:
@@ -194,7 +202,7 @@ def autenticar(page) -> None:
         log.info(f"Intento de login {intento}/{MAX_INTENTOS_LOGIN}")
         tentar_logar(page)
         esperar_e_limpar(page, 5)
-        if verificar_autenticado(page):
+        if verificar_autenticado(page, aguardar=True):
             log.info("Login confirmado")
             return
     raise LoginError(
@@ -210,7 +218,7 @@ def verificar_sesion(page) -> None:
     log.warning("Sesión expirada — reautenticando (1 intento)")
     tentar_logar(page)
     esperar_e_limpar(page, 5)
-    if not verificar_autenticado(page):
+    if not verificar_autenticado(page, aguardar=True):
         raise LoginError("Sesión no confirmada tras expiración")
 
 
@@ -223,7 +231,7 @@ def navegar_autenticado(page, url: str, timeout: int) -> None:
     if resposta is not None and resposta.status >= 400:
         raise BloqueadoError("Resposta HTTP de erro; coleta interrompida")
     esperar_e_limpar(page, 1)
-    if not verificar_autenticado(page):
+    if not verificar_autenticado(page, aguardar=True):
         raise LoginError("Sessão perdida após navegação; nenhuma promoção permitida")
     if es_bloqueo(page):
         raise BloqueadoError("Bloqueio detectado após navegação")
@@ -232,21 +240,20 @@ def navegar_autenticado(page, url: str, timeout: int) -> None:
 # ─── Lectura de listados ──────────────────────────────────────────────────────
 
 def es_listado_vacio(page) -> bool:
-    """Estado explícito de listagem vazia (no confundir con timeout)."""
-    for sel in ['.message.info.empty', '.category-empty', '.no-results',
-                '.toolbar .toolbar-amount span:has-text("0")']:
-        try:
-            if page.query_selector(sel):
+    """Reconhece vazio apenas no catálogo, sem contradizer cards presentes."""
+    if page.query_selector(SELECTOR_CARDS):
+        return False
+    for sel in ['main .message.info.empty', 'main .category-empty',
+                'main .no-results']:
+        for el in page.query_selector_all(sel):
+            if el.is_visible():
                 return True
-        except Exception:
-            pass
-    try:
-        texto = page.inner_text('body') or ""
-        if re.search(r'no hay productos|no products|não há produtos|0 resultados',
-                     texto, re.IGNORECASE):
+    # O total deve ser exatamente zero: :has-text("0") também casa 10 e 20.
+    for el in page.query_selector_all('main .toolbar .toolbar-amount'):
+        if el.is_visible() and re.fullmatch(
+                r'0\s+(?:itens|items|resultados|results|produtos|products)',
+                el.inner_text().strip(), re.IGNORECASE):
             return True
-    except Exception:
-        pass
     return False
 
 
@@ -268,7 +275,7 @@ def colectar_cards_de_pagina(page, url_actual: str) -> dict:
     enlace de categoría -> subcategoría; ambíguo -> producto candidato
     (se verifica en el detalle).
     """
-    cards = page.query_selector_all('.product-item')
+    cards = page.query_selector_all(SELECTOR_CARDS)
     productos, subcategorias = [], []
     for card in cards:
         try:
@@ -319,7 +326,7 @@ def cargar_url_y_colectar_cards(page, url: str) -> dict:
             navegar_autenticado(page, url, timeout=90000)
             esperar_e_limpar(page, 3)
             estabilizar_scroll(page)
-            page.wait_for_selector('.product-item', timeout=12000)
+            page.wait_for_selector(SELECTOR_CARDS, timeout=12000, state="attached")
             break
         except (BloqueadoError, LoginError):
             raise
@@ -345,6 +352,8 @@ def cargar_url_y_colectar_cards(page, url: str) -> dict:
     datos = colectar_cards_de_pagina(page, url)
     datos["siguiente"] = obtener_siguiente_pagina(page, url)
     datos["estado"] = "ok"
+    log.info("Listagem coletada: %s — produtos=%d, subcategorias=%d",
+             url, len(datos["productos"]), len(datos["subcategorias"]))
     return datos
 
 
@@ -564,7 +573,7 @@ def analizar_producto(page, prod: dict) -> dict:
             navegar_autenticado(page, prod["url"], timeout=60000)
             esperar_e_limpar(page, 2)
             if page.query_selector('.product-info-main') is None:
-                if page.query_selector('.product-item'):
+                if page.query_selector(SELECTOR_CARDS):
                     cards = colectar_cards_de_pagina(page, prod["url"])
                     return {"status": "es_categoria", "url": prod["url"],
                             **cards}
