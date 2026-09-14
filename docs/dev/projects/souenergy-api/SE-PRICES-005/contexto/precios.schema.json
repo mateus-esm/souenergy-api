@@ -22,21 +22,14 @@
       "propertyNames": {
         "enum": [
           "mono_solplanet_620", "tri_solplanet_620",
-          "micro_hoymiles_620", "micro_hoymiles_710",
-          "solplanet_string_415", "hoymiles_micro_415",
-          "huawei_string_415", "sungrow_string_415", "outros"
+          "micro_hoymiles_620", "micro_hoymiles_710"
         ]
       },
       "properties": {
         "mono_solplanet_620": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
         "tri_solplanet_620": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
         "micro_hoymiles_620": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
-        "micro_hoymiles_710": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
-        "solplanet_string_415": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
-        "hoymiles_micro_415": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
-        "huawei_string_415": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
-        "sungrow_string_415": { "type": "array", "items": { "$ref": "#/definitions/fila" } },
-        "outros": { "type": "array", "items": { "$ref": "#/definitions/fila" } }
+        "micro_hoymiles_710": { "type": "array", "items": { "$ref": "#/definitions/fila" } }
       }
     }
   },
@@ -54,7 +47,7 @@
         "produto_id": { "type": "string", "minLength": 1 },
         "url": { "type": "string", "format": "uri" },
         "nome": { "type": "string", "minLength": 1 },
-        "marca": { "type": ["string", "null"] },
+        "marca": { "type": "string", "minLength": 1 },
         "marca_modulo": { "type": ["string", "null"] },
         "fase": { "enum": ["mono", "tri", "bi", null] },
         "tipo_inversor": { "enum": ["string", "micro", "outro"] },

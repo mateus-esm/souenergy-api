@@ -121,7 +121,9 @@ def publicar(conn, ruta_json: str | os.PathLike, hash_conteudo: str,
     """
     ruta_json = Path(ruta_json)
     repo = Path(repo or os.getenv("REPO_PROPUESTAS", ""))
-    branch = branch or os.getenv("REPO_PROPUESTAS_BRANCH", "master")
+    # O repo propostas-soloenergia usa "main" como branch padrão (não
+    # "master") — confirmado via `git remote show origin` no checkout real.
+    branch = branch or os.getenv("REPO_PROPUESTAS_BRANCH", "main")
 
     if not repo.exists():
         raise PublicationError(

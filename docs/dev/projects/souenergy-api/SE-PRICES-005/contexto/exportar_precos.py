@@ -48,21 +48,10 @@ def _id_estable(fila) -> str:
 
 
 def _tabla_para(fila, mapeo: dict) -> str | None:
-    """Primeira tabela do mapeamento cujas regras casam com a fila.
-
-    Cada campo de `reglas` é opcional: se ausente, não restringe a
-    correspondência (mesmo padrão já usado por `fase`). Isso permite tabelas
-    legadas estritas (marca+tipo+W+fase fixos) lado a lado com famílias reais
-    mais amplas (ex.: `solplanet_string_415` sem `fase`) e um catch-all sem
-    nenhuma regra (ex.: `outros`) — a ordem de definição no JSON decide
-    prioridade, então tabelas mais específicas devem vir antes das amplas.
-    """
     for clave, reglas in mapeo["tabelas"].items():
-        if (("marca" not in reglas or fila["marca"] == reglas["marca"])
-                and ("tipo_inversor" not in reglas
-                     or fila["tipo_inversor"] == reglas["tipo_inversor"])
-                and ("modulo_potencia_w" not in reglas
-                     or fila["modulo_potencia_w"] == reglas["modulo_potencia_w"])
+        if (fila["marca"] == reglas["marca"]
+                and fila["tipo_inversor"] == reglas["tipo_inversor"]
+                and fila["modulo_potencia_w"] == reglas["modulo_potencia_w"]
                 and ("fase" not in reglas or fila["fase"] == reglas["fase"])):
             return clave
     return None
@@ -122,43 +111,19 @@ def proyectar_catalogo(conn, mapeo: dict | None = None) -> tuple[dict, dict]:
             continue
         elegibles.append((tabla, f))
 
-    # Agrupar por (tabla, potencia_kwp, marca, tipo_inversor, fase, W,
-    # inversor, modulo); a composición dentro do grupo (estrutura +
-    # quantidade_modulos) é a identidad comercial restante. As famílias reais
-    # aditivas deixam alguns desses campos livres em `reglas` (ex.:
-    # `solplanet_string_415` não fixa `fase`; `outros` não fixa nada) para
-    # agregar produtos heterogêneos numa só tabela. Sem incluir esses campos
-    # livres na chave de agrupamento, dois produtos genuinamente diferentes
-    # (marcas ou fases distintas) que caem na mesma tabela com a mesma
-    # potência seriam tratados como "variantes ambíguas do mesmo item" por
-    # engano. Nas tabelas legadas — que já fixam todos esses campos via
-    # `reglas` — a chave fica redundante, mas nunca cria mais de um grupo.
-    #
-    # `inversor` e `modulo` entram na chave porque, no catálogo real, dois
-    # kits com a mesma potência/marca/tipo/fase/W podem ser variantes
-    # legítimas e distintas que só se diferenciam pelo modelo do inversor
-    # (ex.: HOYMILES HMS-2250DW-4T vs HMS-2000DW-4T, ambos 4x415W em MESA
-    # SOLO). Antes dessa chave mais fina, essas variantes caíam no mesmo
-    # grupo e eram bloqueadas como "conflito" por engano — quase 1/3 do
-    # catálogo real sumia do export. Com inversor/modulo na chave, cada
-    # variante vira seu próprio grupo; o bloqueio de ambiguidade passa a
-    # cobrir apenas divergência real e não resolvível (mesma
-    # marca/tipo/fase/W/inversor/modulo, mas estrutura ou quantidade de
-    # módulos diferentes).
-    grupos: dict[tuple, list] = {}
+    # Agrupar por (tabla, potencia_kwp); composición = identidad comercial
+    grupos: dict[tuple[str, float], list] = {}
     for tabla, f in elegibles:
-        chave = (tabla, f["potencia_kwp"], f["marca"], f["tipo_inversor"],
-                 f["fase"], f["modulo_potencia_w"], f["inversor"], f["modulo"])
-        grupos.setdefault(chave, []).append(f)
+        grupos.setdefault((tabla, f["potencia_kwp"]), []).append(f)
 
     conflictos = []
     tabelas = {k: [] for k in mapeo["tabelas"]}
-    for chave, grupo in sorted(grupos.items(),
-                               key=lambda kv: (kv[0][0], kv[0][1] or 0)):
-        tabla = chave[0]
+    for (tabla, _potencia), grupo in sorted(grupos.items(),
+                                            key=lambda kv: (kv[0][0], kv[0][1] or 0)):
         composiciones = {}
         for f in grupo:
-            comp = (f["estrutura"], f["quantidade_modulos"])
+            comp = (f["inversor"], f["modulo"], f["estrutura"],
+                    f["quantidade_modulos"], f["fase"])
             composiciones.setdefault(comp, []).append(f)
         if len(composiciones) > 1 and mapeo["reglas"].get(
                 "bloquear_sin_equivalencia", True):

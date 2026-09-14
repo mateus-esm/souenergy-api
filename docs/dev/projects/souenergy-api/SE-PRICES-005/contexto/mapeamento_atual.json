@@ -22,28 +22,7 @@
       "marca": "HOYMILES",
       "tipo_inversor": "micro",
       "modulo_potencia_w": 710
-    },
-    "solplanet_string_415": {
-      "marca": "SOLPLANET",
-      "tipo_inversor": "string",
-      "modulo_potencia_w": 415
-    },
-    "hoymiles_micro_415": {
-      "marca": "HOYMILES",
-      "tipo_inversor": "micro",
-      "modulo_potencia_w": 415
-    },
-    "huawei_string_415": {
-      "marca": "HUAWEI",
-      "tipo_inversor": "string",
-      "modulo_potencia_w": 415
-    },
-    "sungrow_string_415": {
-      "marca": "SUNGROW",
-      "tipo_inversor": "string",
-      "modulo_potencia_w": 415
-    },
-    "outros": {}
+    }
   },
   "reglas": {
     "elegir_variante": "menor_pix",
