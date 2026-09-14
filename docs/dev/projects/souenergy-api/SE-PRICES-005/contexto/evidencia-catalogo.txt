@@ -1,0 +1,37 @@
+total productos: 171
+disponible: 171
+com preco: 171
+
+marca|tipo_inversor|fase|modulo_potencia_w|n
+SOLPLANET|string|tri|415|40
+None|string|None|415|24
+None|string|tri|415|24
+HOYMILES|micro|None|415|17
+HUAWEI|string|None|415|17
+HUAWEI|string|tri|415|14
+SUNGROW|string|tri|415|9
+None|string|mono|415|6
+SOLPLANET|string|None|415|6
+SUNGROW|string|None|415|4
+HOYMILES|micro|bi|415|3
+None|string|bi|415|1
+None|string|tri|620|1
+HOYMILES|string|None|None|1
+HOYMILES|string|None|415|1
+HUAWEI|string|tri|710|1
+SOLPLANET|string|mono|415|1
+SUNGROW|string|bi|415|1
+
+=== AMOSTRA DE PRODUTOS ===
+{"nome": "GERADOR DE ENERGIA HOYMILES 11,90kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "string", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 24, "potencia_kwp": 9.96, "inversor": "HIBRIDO HOYMILES 6KW 220V (HIS-6L-G3) (APENAS F-N 220V)", "modulo": "24 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$18.378,26"}
+{"nome": "(KIT APAGÃO) GERADOR DE ENERGIA HOYMILES 11,90kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "string", "fase": null, "modulo_potencia_w": null, "quantidade_modulos": 7, "potencia_kwp": 11.9, "inversor": "HIBRIDO HOYMILES 6KW 220V (HIS-6L-G3) (APENAS F-N 220V)", "modulo": "Nenhum", "estrutura": "MESA SOLO", "preco_pix": "R$9.218,86"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 2,84kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 4, "potencia_kwp": 1.66, "inversor": "HOYMILES 2250W 220V (HMS-2250DW-4T)", "modulo": "4 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$2.700,48"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 5,68kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 8, "potencia_kwp": 3.32, "inversor": "HOYMILES 2250KW 220V (HMS-2250DW-4T)", "modulo": "8 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$5.415,49"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 8,52kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 12, "potencia_kwp": 4.98, "inversor": "HOYMILES 225KW 220V (HMS-2250DW-4T)", "modulo": "12 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$8.101,45"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 11,36kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 16, "potencia_kwp": 6.64, "inversor": "HOYMILES 2250KW 220V (HMS-2250DW-4T)", "modulo": "16 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$10.801,94"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 14,20kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 20, "potencia_kwp": 8.3, "inversor": "HOYMILES 2250KW 220V (HMS-2250DW-4T)", "modulo": "20 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$13.552,74"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 2,66kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 4, "potencia_kwp": 1.66, "inversor": "HOYMILES 2000W 220V (HMS-2000DW-4T)", "modulo": "4 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$2.550,54"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 5,32kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 8, "potencia_kwp": 3.32, "inversor": "HOYMILES 2000W 220V (HMS-2000DW-4T)", "modulo": "8 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$5.115,61"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 8,40kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 12, "potencia_kwp": 4.98, "inversor": "HOYMILES 2000W 220V (HMS-2000DW-4T)", "modulo": "12 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$7.651,63"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 10,64kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 16, "potencia_kwp": 6.64, "inversor": "HOYMILES 2000W 220V (HMS-2000DW-4T)", "modulo": "16 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$10.202,18"}
+{"nome": "GERADOR DE ENERGIA HOYMILES 8,1kWp", "marca": "HOYMILES", "marca_modulo": null, "tipo_inversor": "micro", "fase": null, "modulo_potencia_w": 415, "quantidade_modulos": 20, "potencia_kwp": 8.3, "inversor": "HOYMILES 2000W 220V (HMS-2000DW-4T)", "modulo": "20 x PAINEL MAXEON 415W (SPR-MAX3-415-R)", "estrutura": "MESA SOLO", "preco_pix": "R$12.803,04"}

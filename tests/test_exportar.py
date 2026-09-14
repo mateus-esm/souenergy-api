@@ -42,18 +42,84 @@ def _catalogo_completo(conn):
 
 
 def test_cuatro_tablas_y_contenido(conn):
+    """As quatro tabelas legadas continuam presentes e populadas (aditivo:
+    o mapeamento ganhou famílias reais + catch-all, não perdeu as legadas)."""
     _catalogo_completo(conn)
     datos, reporte = exportar_precos.construir_precios_json(conn)
-    assert set(datos["tabelas"]) == {
-        "mono_solplanet_620", "tri_solplanet_620",
-        "micro_hoymiles_620", "micro_hoymiles_710"}
+    tabelas_legadas = {"mono_solplanet_620", "tri_solplanet_620",
+                       "micro_hoymiles_620", "micro_hoymiles_710"}
+    assert tabelas_legadas <= set(datos["tabelas"])
     assert len(datos["tabelas"]["mono_solplanet_620"]) == 1
     assert len(datos["tabelas"]["tri_solplanet_620"]) == 1
     assert len(datos["tabelas"]["micro_hoymiles_620"]) == 1
     assert len(datos["tabelas"]["micro_hoymiles_710"]) == 1
-    # HUAWEI y equipamento fuera de las cuatro tablas, reportados
-    assert len(reporte["no_mapeados"]) == 2
-    assert reporte["elegidos"] == 4
+    # HUAWEI 620W não bate com nenhuma família real (que exige 415W) nem com
+    # as legadas (marca != SOLPLANET/HOYMILES) — cai no catch-all "outros"
+    # em vez de ser descartado.
+    assert len(datos["tabelas"]["outros"]) == 1
+    assert datos["tabelas"]["outros"][0]["marca"] == "HUAWEI"
+    # Só o "equipamento" (não é kit) fica de fora do contrato, reportado.
+    assert len(reporte["no_mapeados"]) == 1
+    assert reporte["no_mapeados"][0]["motivo"] == "no_es_kit"
+    assert reporte["elegidos"] == 5
+
+
+def test_familias_reais_415w_aditivo(conn):
+    """O catálogo real (módulos 415W MAXEON) é publicado nas novas famílias
+    aditivas, lado a lado com as quatro tabelas legadas (mesmo vazias)."""
+    crear_scrape_con_observaciones(conn, [
+        observacion("https://souenergy.com.br/kit-solplanet-415.html",
+                    preco=1800000, marca="SOLPLANET", fase="tri",
+                    modulo_potencia_w=415, potencia_kwp=9.96, quantidade=24),
+        observacion("https://souenergy.com.br/kit-hoymiles-micro-415.html",
+                    preco=270048, marca="HOYMILES", tipo_inversor="micro",
+                    fase=None, modulo_potencia_w=415, potencia_kwp=1.66,
+                    quantidade=4),
+        observacion("https://souenergy.com.br/kit-huawei-415.html",
+                    preco=1200000, marca="HUAWEI", fase="tri",
+                    modulo_potencia_w=415, potencia_kwp=5.81, quantidade=14),
+        observacion("https://souenergy.com.br/kit-sungrow-415.html",
+                    preco=900000, marca="SUNGROW", fase="tri",
+                    modulo_potencia_w=415, potencia_kwp=4.15, quantidade=10),
+        # Sem marca detectada: representado em "outros", não descartado.
+        observacion("https://souenergy.com.br/kit-sem-marca-415.html",
+                    preco=850000, marca=None, fase="tri",
+                    modulo_potencia_w=415, potencia_kwp=9.96, quantidade=24),
+    ])
+    datos, reporte = exportar_precos.construir_precios_json(conn)
+    assert len(datos["tabelas"]["solplanet_string_415"]) == 1
+    assert len(datos["tabelas"]["hoymiles_micro_415"]) == 1
+    assert len(datos["tabelas"]["huawei_string_415"]) == 1
+    assert len(datos["tabelas"]["sungrow_string_415"]) == 1
+    assert len(datos["tabelas"]["outros"]) == 1
+    assert datos["tabelas"]["outros"][0]["marca"] is None
+    # As quatro tabelas legadas continuam no contrato, mesmo vazias.
+    for legada in ("mono_solplanet_620", "tri_solplanet_620",
+                  "micro_hoymiles_620", "micro_hoymiles_710"):
+        assert datos["tabelas"][legada] == []
+    assert reporte["elegidos"] == 5
+    assert exportar_precos.validar_contrato(datos) == []
+
+
+def test_familias_reais_nao_bloqueiam_por_fase_diferente(conn):
+    """Duas fases distintas (mono e tri) com a mesma potência não podem ser
+    tratadas como 'ambíguas' só porque a família real agrega várias fases
+    numa tabela só (sem `fase` em reglas) — cada uma é um produto legítimo."""
+    crear_scrape_con_observaciones(conn, [
+        observacion("https://souenergy.com.br/kit-tri-9-96.html",
+                    preco=1800000, marca="SOLPLANET", fase="tri",
+                    modulo_potencia_w=415, potencia_kwp=9.96, quantidade=24,
+                    inversor="Solplanet Tri X", modulo="Painel A"),
+        observacion("https://souenergy.com.br/kit-mono-9-96.html",
+                    preco=1750000, marca="SOLPLANET", fase="mono",
+                    modulo_potencia_w=415, potencia_kwp=9.96, quantidade=24,
+                    inversor="Solplanet Mono Y", modulo="Painel A"),
+    ])
+    datos, reporte = exportar_precos.construir_precios_json(conn)
+    assert reporte["conflictos"] == []
+    assert len(datos["tabelas"]["solplanet_string_415"]) == 2
+    fases = {f["fase"] for f in datos["tabelas"]["solplanet_string_415"]}
+    assert fases == {"tri", "mono"}
 
 
 def test_validacion_contrato_ok(conn):
@@ -88,8 +154,10 @@ def test_hash_comercial_ignora_timestamps():
 
 
 def test_ambiguedad_bloquea_linea(conn):
-    """Dos productos con la misma potencia pero distinta composición no se
-    eligen silenciosamente: se bloquea la línea y se reporta conflicto."""
+    """Dos productos con la misma potencia, marca, fase, W, inversor y
+    modulo, pero distinta estrutura, no se eligen silenciosamente: divergen
+    en un campo que não distingue variantes legítimas, então se bloquea la
+    línea y se reporta conflicto."""
     crear_scrape_con_observaciones(conn, [
         observacion(URL_MONO, preco=1234567, marca="SOLPLANET", fase="mono",
                     modulo_potencia_w=620, potencia_kwp=7.44, quantidade=12,
@@ -97,12 +165,35 @@ def test_ambiguedad_bloquea_linea(conn):
                     estrutura="Estrutura A"),
         observacion("https://souenergy.com.br/kit-mono-b.html", preco=1200000,
                     marca="SOLPLANET", fase="mono", modulo_potencia_w=620,
-                    potencia_kwp=7.44, quantidade=12, inversor="Solplanet X2",
-                    modulo="Painel B", estrutura="Estrutura B"),
+                    potencia_kwp=7.44, quantidade=12, inversor="Solplanet X1",
+                    modulo="Painel A", estrutura="Estrutura B"),
     ])
     datos, reporte = exportar_precos.construir_precios_json(conn)
     assert datos["tabelas"]["mono_solplanet_620"] == []
     assert len(reporte["conflictos"]) == 2
+
+
+def test_variantes_de_inversor_nao_bloqueiam(conn):
+    """Duas variantes legítimas que só diferem no modelo do inversor (mesma
+    potência/marca/tipo/fase/W/modulo/estrutura/quantidade) não podem ser
+    tratadas como ambíguas: cada uma vira sua própria linha no export,
+    reproduzindo o caso real HOYMILES HMS-2250DW-4T vs HMS-2000DW-4T."""
+    crear_scrape_con_observaciones(conn, [
+        observacion(URL_MONO, preco=270048, marca="HOYMILES",
+                    tipo_inversor="micro", fase=None, modulo_potencia_w=415,
+                    potencia_kwp=1.66, quantidade=4,
+                    inversor="HOYMILES 2250W 220V (HMS-2250DW-4T)",
+                    modulo="4 x MAXEON 415W", estrutura="MESA SOLO"),
+        observacion("https://souenergy.com.br/kit-hoymiles-2000w.html",
+                    preco=255054, marca="HOYMILES", tipo_inversor="micro",
+                    fase=None, modulo_potencia_w=415, potencia_kwp=1.66,
+                    quantidade=4,
+                    inversor="HOYMILES 2000W 220V (HMS-2000DW-4T)",
+                    modulo="4 x MAXEON 415W", estrutura="MESA SOLO"),
+    ])
+    datos, reporte = exportar_precos.construir_precios_json(conn)
+    assert reporte["conflictos"] == []
+    assert len(datos["tabelas"]["hoymiles_micro_415"]) == 2
 
 
 def test_equivalentes_elige_menor_pix(conn):
