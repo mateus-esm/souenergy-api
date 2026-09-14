@@ -125,3 +125,29 @@ def test_quantidade_modulos():
     assert extrair_quantidade_modulos("Kit 12x 620W") == 12
     assert extrair_quantidade_modulos("Kit 8 módulos") == 8
     assert extrair_quantidade_modulos("Kit solar") is None
+
+
+def test_quantidade_modulos_campo_painel_real():
+    """Casos reais do site: marca/modelo entre a quantidade e o W."""
+    assert extrair_quantidade_modulos(
+        "26 x PAINEL MAXEON 415W (SPR-MAX3-415-R)") == 26
+    assert extrair_quantidade_modulos(
+        "144 x PAINEL MAXEON 415W") == 144
+    assert extrair_quantidade_modulos(
+        "20 x PAINEL HANERSUN 710W BIFACIAL N-TYPE TOPCON "
+        "ALUMÍNIO (HN21N-66HT 30MM)") == 20
+
+
+def test_quantidade_nao_casa_kit_fixacao_nem_ano():
+    """'4 PAINÉIS' do kit de fixação e anos davam quantidades falsas."""
+    assert extrair_quantidade_modulos(
+        "KIT DE FIXAÇÃO P/ 4 PAINÉIS: 1 x PRISIONEIRO") is None
+    assert extrair_quantidade_modulos(
+        "Previsto a partir de: 30/09/2026") is None
+    assert extrair_quantidade_modulos(
+        "GERADOR DE ENERGIA HOYMILES 2,66kWp") is None
+
+
+def test_quantidade_paineis_exige_qualificador():
+    assert extrair_quantidade_modulos("8 painéis fotovoltaicos") == 8
+    assert extrair_quantidade_modulos("4 PAINÉIS") is None

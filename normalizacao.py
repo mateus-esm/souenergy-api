@@ -217,8 +217,15 @@ def extrair_tipo_inversor(texto: str | None) -> str | None:
 
 # ─── Quantidade de módulos ─────────────────────────────────────────────────────
 
-_QTY_RE = re.compile(r'(\d+)\s*[xX×]\s*\d+\s*W', re.IGNORECASE)
-_QTY_PALABRA_RE = re.compile(r'(\d+)\s*(?:m[oó]dulos?|paines?|paneles?|pain[eé]is)', re.IGNORECASE)
+# "26 x PAINEL MAXEON 415W": a quantidade vem antes do 'x' e o W pode
+# estar até 80 caracteres depois (marca/modelo entre eles).
+_QTY_RE = re.compile(r'(\d+)\s*[xX×]\s*[^\n]{0,80}?(\d+)\s*W\b',
+                     re.IGNORECASE)
+# "12 módulos" ou "12 painéis fotovoltaicos/solares". Não casar "4 PAINÉIS"
+# do kit de fixação: painéis exige qualificador fotovoltaico/solar.
+_QTY_PALABRA_RE = re.compile(
+    r'(\d+)\s*(?:m[oó]dulos?|pain[eé]is\s+(?:fotovoltaic|solar))',
+    re.IGNORECASE)
 
 
 def extrair_quantidade_modulos(texto: str | None) -> int | None:

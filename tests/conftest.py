@@ -153,6 +153,11 @@ class PaginaFalsa:
             if d.get("es_producto"):
                 return ElementoFalso(texto=d.get("ficha", ""))
             return None
+        if sel == '.product-info-main h1, h1.page-title, h1':
+            if d.get("es_producto"):
+                texto = d.get("h1") or d.get("titulo") or ""
+                return ElementoFalso(texto=texto) if texto else None
+            return None
         if sel == 'main .products .product-item':
             return ElementoFalso() if d.get("cards") else None
         if sel in ('.pix-price-container .price', '.pix-price .price',
@@ -190,12 +195,17 @@ class PaginaFalsa:
         return self._def().get("titulo", "")
 
 
-def pagina_producto(url, *, nome="Kit teste", ficha="", titulo="",
+def pagina_producto(url, *, nome="Kit teste", ficha="", titulo="", h1=None,
                     precio_pix="R$ 12.345,67", sku=None,
                     disponibilidad="disponible", siguiente=None):
-    """Definición de página de detalle de producto."""
+    """Definición de página de detalle de producto.
+
+    `titulo` es el <title> (que en el sitio real deriva del slug de la URL y
+    puede no coincidir con el producto); `h1` es el encabezado visible.
+    """
     return {
         "es_producto": True, "ficha": ficha, "titulo": titulo or nome,
+        "h1": h1,
         "precio_pix": precio_pix, "sku": sku,
         "disponibilidad": disponibilidad, "siguiente": siguiente,
     }

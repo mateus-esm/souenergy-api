@@ -462,7 +462,13 @@ def extraer_datos_producto(page, prod: dict) -> dict:
     except Exception:
         texto_ficha = ""
     try:
-        titulo = page.title() or ""
+        # O <title> vem do slug da URL e pode divergir do produto real
+        # (ex.: URL ...-5-67kwp-... servindo o kit de 6,20kWp). O H1 é a
+        # fonte correta; page.title() fica só como fallback.
+        h1 = page.query_selector('.product-info-main h1, h1.page-title, h1')
+        titulo = h1.inner_text().strip() if h1 else ""
+        if not titulo:
+            titulo = page.title() or ""
     except Exception:
         titulo = ""
 
@@ -508,7 +514,12 @@ def extraer_datos_producto(page, prod: dict) -> dict:
     tipo_inversor = extrair_tipo_inversor(inversor) or \
         extrair_tipo_inversor(texto_ficha)
     potencia_modulo_w = normalizar_potencia_modulo_w(modulo or titulo)
-    quantidade = extrair_quantidade_modulos(f"{titulo} {texto_ficha}")
+    # A quantidade confiável vem do campo do painel ("26 x PAINEL ... 415W").
+    # A ficha inteira contém "4 PAINÉIS" do kit de fixação e anos (2026), que
+    # geravam quantidades falsas; por isso ela é o último recurso.
+    quantidade = (extrair_quantidade_modulos(modulo)
+                  or extrair_quantidade_modulos(titulo)
+                  or extrair_quantidade_modulos(texto_ficha))
 
     # Potência total: da ficha/título (origem) e calculada (qty × W / 1000)
     potencia_kwp = normalizar_potencia_kwp(f"{titulo} {texto_ficha}")
@@ -517,6 +528,10 @@ def extraer_datos_producto(page, prod: dict) -> dict:
     if (potencia_kwp is not None and potencia_calculada is not None
             and abs(potencia_kwp - potencia_calculada) > 0.05):
         motivo_nao_exportavel = "divergencia_potencia"
+    elif potencia_kwp is None and potencia_calculada is not None:
+        # Kit configurável: a ficha mostra faixa ("1,65 até 6,20kWp") e o
+        # título é genérico. A composição real (qty × W) é a fonte correta.
+        potencia_kwp = potencia_calculada
 
     # tipo_produto: kit si tiene inversor+módulo+estructura
     if inversor and modulo and estrutura:
